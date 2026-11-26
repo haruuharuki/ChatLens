@@ -35,3 +35,9 @@ test('OCR confidence alone does not declare transcript accurate',()=>{
   const high=checkSegmentsForReview([{kind:'image',text:'มีข้อความจำนวนมากให้ระบบตรวจ',confidence:95}]);
   assert.equal(high.some(x=>x.type==='ocr'),false);
 });
+
+test('photo placeholder triggers review but never deletes source text',()=>{
+  const segment={text:'อังโกะทำแอปเปิลทาร์ต\n[ภาพแนบ]',kind:'image',hasMedia:true};
+  assert.ok(checkSegmentsForReview([segment]).some(x=>x.type==='media'));
+  assert.ok(segment.text.includes('อังโกะ'));
+});

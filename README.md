@@ -1,6 +1,6 @@
 # ChatLens — Discord screenshot-to-text (Mobile first)
 
-> v0.2.1 · Static web app · https://haruuharuki.github.io/ChatLens/
+> v0.2.2 · Static web app · https://haruuharuki.github.io/ChatLens/
 
 **เป้าหมาย:** เลือกภาพแคป Discord หลายภาพบนมือถือ → อ่านข้อความ → คัดลอกไปวางใน ChatGPT โดยไม่ต้องครอปเอง
 
@@ -47,3 +47,13 @@ Tested visually against three user-provided Discord iPhone screenshots (1206 x 2
 - A private, original-resolution screenshot remains visible in the **current session** for manual verification; only text is persisted on-device.
 - Improve local Thai OCR with a browser-suitable Thai recognizer before claiming production-grade extraction. PaddleOCR th-rec and iApp OpenThai OCR are candidates requiring actual iPhone Safari/WASM + privacy and model licensing checks.
 - A detected photo is not a transcribed photo caption. Do not infer details of attachments from image OCR garbage.
+
+## v0.2.2 · Real screenshot follow-up
+
+Four user supplied iPhone Discord screenshots (IMG_6768–6771) showed two separate failures: OCR Thai glyph confusion persists (Tesseract), and the image picker delivered the captures out of chronological order. No private screenshots enter the public repository.
+
+- Automatically sort **only** iOS `IMG_<number>` screenshots, including the previously restored image-only session, preserving a manual reorder and all unrecognized filename batches unchanged. File number is an ordering *hint*, not proof of chat completeness.
+- Suppress OCR over a **high-confidence large light photo that continues to the bottom** of an otherwise dark screenshot. Replace it with `[ภาพแนบในแชท — ไม่ได้ถอดรายละเอียดจากรูปภาพ]`; source remains visible in review. All uncertain or embedded/fully-contained media still require review.
+- Normalize only decomposed Thai sara-am Unicode, without guessing or rewriting misspelled Thai words.
+- Disable mandatory dark contrast as it failed to resolve the actual Thai vowel errors on the user's samples.
+- The Thai engine upgrade is a separate task: OpenThai 2.1 Text ONNX (Apache-2.0) supports Thai and English but its full browser runtime / Safari compatibility must be proved before replacing existing OCR. Do not claim the current release solves Thai accuracy.

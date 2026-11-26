@@ -19,4 +19,5 @@ jobs:
           node --check lib/merge.mjs
           node --check lib/scan-utils.mjs
           node --check lib/ocr-preprocess.mjs
-          node --check lib/scan-utils.mjs
+          node --check lib/capture-utils.mjs
+          node --check lib/media-guard.mjs
