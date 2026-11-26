@@ -2,6 +2,7 @@ import { mergeSegments, splitText, exportMarkdown } from './lib/merge.mjs';
 import { discordCropRect, checkSegmentsForReview } from './lib/scan-utils.mjs';
 import { sortCapturedFiles, sortScreenshotSegments, normalizeOCRText } from './lib/capture-utils.mjs';
 import { maskBottomPhoto } from './lib/media-guard.mjs';
+import { VISUAL_WIDTH, lumaFromRGBA, detectVisualOverlap } from './lib/visual-overlap.mjs';
 
 const $ = id => document.getElementById(id);
 const segments = [];
@@ -18,7 +19,7 @@ function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     try {
-      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia}));
+      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap}));
       const value=JSON.stringify({version:2,title:$('archive-title').value,manualImageOrder,segments:items});
       if(value.length>2500000) throw new Error('ข้อมูลมีขนาดใหญ่เกินสำหรับบันทึกในเบราว์เซอร์');
       localStorage.setItem(STORAGE_KEY,value);
@@ -45,7 +46,8 @@ function loadSession(){
         second:Number.isFinite(item.second)?item.second:undefined,
         error:typeof item.error==='string'?item.error:undefined,
         fingerprint:typeof item.fingerprint==='string'?item.fingerprint:undefined,
-        enhanced:item.enhanced===true, hasMedia:item.hasMedia===true
+        enhanced:item.enhanced===true, hasMedia:item.hasMedia===true,
+        visualOverlap:item.visualOverlap===true
       });
     }
     if(typeof saved.title==='string')$('archive-title').value=saved.title.slice(0,100);
@@ -63,7 +65,7 @@ function status(label, percent = 0) {
 }
 function setBusy(state) {
   busy = state;
-  for (const id of ['start-image','start-video','add-text','clear-all','demo','image-input','video-input','auto-crop']) $(id).disabled = state;
+  for (const id of ['start-image','start-video','add-text','clear-all','demo','image-input','video-input','auto-crop','visual-overlap']) $(id).disabled = state;
   if (!state) $('progress-box').hidden = true;
 }
 function tabs(active) {
@@ -99,7 +101,7 @@ function render() {
     const desc=document.createElement('div');
     const name=document.createElement('div'); name.className='review-name'; name.textContent=`${i+1}. ${s.source}`;
     const meta=document.createElement('div'); meta.className='review-meta';
-    meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence != null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% (ไม่ใช่ความแม่นยำ) · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}`;
+    meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence != null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% (ไม่ใช่ความแม่นยำ) · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;
     desc.append(name,meta);
     const actions=document.createElement('div'); actions.className='mini-actions';
     for (const [symbol,label,fn,disabled] of [
@@ -111,7 +113,7 @@ function render() {
     }
     header.append(desc,actions);
     const editor=document.createElement('textarea');editor.value=s.text;editor.setAttribute('aria-label',`แก้ไขข้อความช่วงที่ ${i+1}`);editor.spellcheck=false;
-    editor.addEventListener('input',()=>{s.text=editor.value;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}`;refreshStats();});
+    editor.addEventListener('input',()=>{s.text=editor.value;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;refreshStats();});
     item.append(header,editor);
     if(previews.has(s.id)){
       const previewBtn=document.createElement('button');previewBtn.className='text-button';previewBtn.type='button';previewBtn.textContent='ดูภาพต้นฉบับ';
@@ -127,12 +129,13 @@ function move(i,delta){ const j=i+delta;if(j<0||j>=segments.length)return;manual
 function refreshStats(){
   const {text,notices}=mergeSegments(segments);
   const issues=checkSegmentsForReview(segments);
-  const uncertain=notices.filter(n=>n.type!=='overlap').length;
+  const uncertain=notices.filter(n=>n.type==='uncertain'||n.type==='empty').length;
   const overlap=notices.filter(n=>n.type==='overlap').length;
+  const visualSkipped=segments.filter(s=>s.visualOverlap).length;
   $('export-stats').textContent=`${segments.length} ช่วง · ${text.length.toLocaleString('th-TH')} ตัวอักษร`;
   $('merged-preview').value=text;
   $('merge-summary').textContent=segments.length
-    ? `พบข้อความซ้ำที่ตัดได้แน่ชัด ${overlap} จุด · รอยต่อยังไม่ยืนยัน ${uncertain} จุด${issues.length?' · มีจุดควรตรวจ '+issues.length+' จุด':''}
+    ? `ข้ามภาพซ้อนด้วยตำแหน่งภาพ ${visualSkipped} จุด · ตัดบรรทัดซ้ำตรงกัน ${overlap} จุด · รอยต่อยังไม่ยืนยัน ${uncertain} จุด${issues.length?' · มีจุดควรตรวจ '+issues.length+' จุด':''}
 ข้อความยังอยู่ครบตาม OCR ไม่ลบส่วนที่คล้ายกันโดยคาดเดา`
     : 'เพิ่มภาพเพื่อดูข้อความทั้งหมดและจุดที่ควรตรวจ';
   const alerts=$('review-alerts');alerts.replaceChildren();
@@ -177,26 +180,55 @@ function reducedCanvas(width,height,maxWidth=1800){
   canvas.width=Math.max(1,Math.round(width*scale));canvas.height=Math.max(1,Math.round(height*scale));
   return canvas;
 }
-async function readImageFile(file){
-  let url=URL.createObjectURL(file);
+function makeVisualFrame(img) {
+  // A small in-memory thumbnail only; never saved or uploaded.
+  const width=VISUAL_WIDTH;
+  const height=Math.max(1,Math.round(img.naturalHeight*width/img.naturalWidth));
+  const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  ctx.drawImage(img,0,0,width,height);
+  const data=ctx.getImageData(0,0,width,height).data;
+  return {width,height,luma:lumaFromRGBA(data,width,height)};
+}
+
+async function readImageFile(file, previousFrame=null) {
+  const url=URL.createObjectURL(file);
   try {
     const img=new Image();
     await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('เบราว์เซอร์เปิดภาพนี้ไม่ได้'));img.src=url;});
     const crop=discordCropRect(img.naturalWidth,img.naturalHeight,$('auto-crop').checked);
+    let frame=null,visualOverlap=null;
+    // Only apply to consecutive captures within this selection batch.
+    if(crop.cropped && $('visual-overlap').checked) {
+      try {
+        frame=makeVisualFrame(img);
+        visualOverlap=detectVisualOverlap(previousFrame,frame);
+      } catch(_err) {
+        // Low-memory browsers: do NOT risk losing text. OCR the entire crop.
+        frame=null;visualOverlap=null;
+      }
+    }
+    if(visualOverlap){
+      const newTop=Math.round(img.naturalHeight*visualOverlap.skipUntilRatio);
+      if(newTop>crop.y && newTop<crop.y+crop.height){
+        crop.height-=newTop-crop.y;
+        crop.y=newTop;
+      }else visualOverlap=null;
+    }
     const canvas=reducedCanvas(crop.width,crop.height);
     canvas.getContext('2d').drawImage(img,crop.x,crop.y,crop.width,crop.height,0,0,canvas.width,canvas.height);
-    // Do not force contrast: real Thai samples show that the old enhancement did not solve recognition.
-    // Identify only high-confidence white photo cards continuing off-screen; keep raw source intact.
+    // Do not force contrast: real Thai samples show no accuracy improvement.
     let media=null;
     if(crop.cropped){
-      try { media=maskBottomPhoto(canvas); }
-      catch(_err){/* Safari low-memory: do not risk losing the screenshot; OCR as-is. */}
+      try{media=maskBottomPhoto(canvas);}
+      catch(_err){/* Low-memory Safari: OCR as-is */}
     }
     const result=await worker.recognize(canvas);
     const text=normalizeOCRText(result.data.text)+(media?'\n[ภาพแนบในแชท — ไม่ได้ถอดรายละเอียดจากรูปภาพ]':'');
-    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media};
-  } finally { URL.revokeObjectURL(url); }
+    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media,visualOverlap:!!visualOverlap,frame};
+  } finally{URL.revokeObjectURL(url);}
 }
+
 function waitForMedia(video,event,timeout=10000){
   return new Promise((resolve,reject)=>{
     let timer;
@@ -236,7 +268,8 @@ async function scanSelectedImages(){
   const files=planned.files;
   if(!files.length){message('เลือกรูปก่อนจ้า');return;}
   if(busy)return;
-  setBusy(true);let done=0;let failed=0;let skipped=0;
+  setBusy(true);let done=0;let failed=0;let skipped=0;let visualSkipped=0;
+  let previousFrame=null;
   try {
     await ensureWorker();
     for(const file of files){
@@ -244,14 +277,16 @@ async function scanSelectedImages(){
       const fingerprint=`${file.name}:${file.size}:${file.lastModified}`;
       const existing=segments.find(s=>s.fingerprint===fingerprint);
       try {
-        const result=await readImageFile(file);
+        const result=await readImageFile(file,previousFrame);
+        previousFrame=result.frame;
+        if(result.visualOverlap)visualSkipped++;
         const target=existing||addSegment('',file.name,{kind:'image',fingerprint});
-         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;delete target.error;
+         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;target.visualOverlap=result.visualOverlap;delete target.error;
         if(previews.has(target.id))URL.revokeObjectURL(previews.get(target.id));
         previews.set(target.id,URL.createObjectURL(file));
         if(existing)skipped++;
       } catch(err){
-        failed++;
+        failed++;previousFrame=null;
         const target=existing||addSegment('',file.name,{kind:'image',fingerprint});
         target.error=err.message;
         if(!existing)target.source=`${file.name} (อ่านไม่สำเร็จ)`;
@@ -260,7 +295,7 @@ async function scanSelectedImages(){
     }
     const sorted=sortScreenshotSegments(segments,manualImageOrder);
     if(sorted)render();
-    message(`อ่าน ${done} ภาพแล้ว${sorted||planned.reordered?' · ✓ เรียงภาพตามเลข IMG_ แล้ว':''}${skipped?` · อัปเดตภาพเดิม ${skipped}`:''}${failed?` · อ่านไม่สำเร็จ ${failed}`:''} · คัดลอกด้านล่างได้เลย`);
+    message(`อ่าน ${done} ภาพแล้ว${sorted||planned.reordered?' · ✓ เรียงภาพตามเลข IMG_ แล้ว':''}${visualSkipped?` · ✓ ข้ามภาพซ้อน ${visualSkipped} จุด`:''}${skipped?` · อัปเดตภาพเดิม ${skipped}`:''}${failed?` · อ่านไม่สำเร็จ ${failed}`:''} · คัดลอกด้านล่างได้เลย`);
     $('export-title').scrollIntoView({behavior:'smooth',block:'start'});
   } catch(err){message('❌ '+err.message);} finally {setBusy(false);render();}
 }
@@ -330,7 +365,7 @@ $('export-txt').addEventListener('click',()=>{
 });
 $('export-json').addEventListener('click',()=>{
   const merged=mergeSegments(segments);
-  const data={schema:'chatlens-v0.2',title:$('archive-title').value,exportedAt:new Date().toISOString(),notice:'User-provided captures only; completeness and OCR accuracy unverified',segments:segments.map(({id,...rest})=>rest),mergedText:merged.text,boundaryNotices:merged.notices};
+  const data={schema:'chatlens-v0.2.3',title:$('archive-title').value,exportedAt:new Date().toISOString(),notice:'User-provided captures only; completeness and OCR accuracy unverified',segments:segments.map(({id,...rest})=>rest),mergedText:merged.text,boundaryNotices:merged.notices};
   downloadBlob(JSON.stringify(data,null,2),`${archiveName()}.json`,'application/json;charset=utf-8');
 });
 loadSession();
