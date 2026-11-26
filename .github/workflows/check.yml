@@ -21,3 +21,4 @@ jobs:
           node --check lib/ocr-preprocess.mjs
           node --check lib/capture-utils.mjs
           node --check lib/media-guard.mjs
+          node --check lib/visual-overlap.mjs

@@ -36,3 +36,11 @@ test('export includes source audit info', () => {
   assert.match(md,/shot\.png/);
   assert.match(md,/OCR 85%/);
 });
+
+
+test('visual screenshot overlap does not output a false unknown-boundary banner',()=>{
+  const result=mergeSegments([{text:'คนแรก: พูดก่อน'},{text:'คนถัดมา: พูดหลัง',visualOverlap:true}]);
+  assert.equal(result.text,'คนแรก: พูดก่อน\nคนถัดมา: พูดหลัง');
+  assert.equal(result.notices[0].type,'visual');
+  assert.ok(!result.text.includes('ตรวจสอบรอยต่อ'));
+});
