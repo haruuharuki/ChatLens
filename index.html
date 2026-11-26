@@ -18,9 +18,9 @@
   </header>
   <main id="home" class="layout">
     <section class="hero">
-      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.2</div>
+      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.2.1</div>
       <h1>แคปแชท แล้วคัดลอกได้เลย<br><span>ไม่ต้องครอปเองทีละภาพ</span></h1>
-      <p>เลือกภาพจากมือถือหลายภาพ ระบบจะอ่านข้อความและเตือนจุดที่ยังไม่แน่ใจ ก่อนคัดลอกไปวางใน ChatGPT</p>
+      <p>เลือกภาพแชทหลายภาพ ระบบช่วยเตรียมภาพก่อน OCR และเก็บข้อความที่อ่านได้ให้คัดลอก แม้การอ่านภาษาไทยยังมีจุดผิดพลาด</p>
       <div class="callout"><span>🔐</span><span>ไม่เชื่อมบัญชี Discord ไม่ใช้ User Token ไม่ส่งภาพหรือข้อความไปยังเซิร์ฟเวอร์ของแอป <strong>แต่ต้องใช้อินเทอร์เน็ตเพื่อโหลดตัว OCR ครั้งแรก</strong></span></div>
     </section>
     <div class="workspace">
@@ -34,7 +34,7 @@
         <div id="panel-image" class="tab-panel">
           <label class="upload-box" for="image-input"><span class="upload-emoji">☁️</span><strong>แตะเลือกภาพแชทจากอัลบั้ม</strong><span>เลือกหลายภาพได้ • อ่านข้อความให้อัตโนมัติ</span><em>ไม่ต้องครอปก่อน • หากเวลาในภาพไม่เรียง ระบบจะแจ้งให้ตรวจ</em></label>
           <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple hidden>
-          <label class="toggle-line"><input id="auto-crop" type="checkbox" checked> ตัดแถบหัวห้องและช่องพิมพ์ Discord บนภาพมือถือ</label>
+          <label class="toggle-line"><input id="auto-crop" type="checkbox" checked> ตัดขอบ Discord และไอคอนผู้ใช้จากภาพมือถือ (ทดลอง)</label>
           <button id="start-image" class="secondary full" type="button">อ่านภาพที่เลือกอีกครั้ง</button>
         </div>
         <div id="panel-video" class="tab-panel" hidden>
@@ -62,7 +62,7 @@
       </div>
       <div id="merge-summary" class="merge-summary">เพิ่มข้อความเพื่อดูผลรวมและรอยต่อที่ยังไม่ยืนยัน</div>
       <button id="copy-text" class="primary full copy-main" type="button" disabled>📋 คัดลอกบทสนทนาไปวางใน ChatGPT</button>
-      <p class="hint">คัดลอกทั้งข้อความพร้อมหมายเหตุรอยต่อที่ไม่แน่ใจได้ทันที ไม่ต้องดาวน์โหลดไฟล์</p>
+      <p class="hint">คัดลอกข้อความดิบพร้อมหมายเหตุรอยต่อได้ทันที · ตรวจชื่อคนและภาษาไทยที่ OCR อาจอ่านผิดก่อนใช้อ้างอิง</p>
       <textarea id="merged-preview" rows="7" readonly aria-label="ข้อความทั้งหมดที่พร้อมคัดลอก" placeholder="ข้อความที่อ่านได้จะปรากฏที่นี่"></textarea>
       <details class="download-options"><summary>ตัวเลือกเพิ่มเติม · ดาวน์โหลดไฟล์</summary>
         <div class="action-row"><button id="export-md" class="secondary" type="button" disabled>Markdown</button><button id="export-txt" class="secondary" type="button" disabled>TXT</button><button id="export-json" class="secondary" type="button" disabled>JSON</button></div>
@@ -77,7 +77,7 @@
         <details id="review-details" class="review-details"><summary>เปิดดู / แก้ไขข้อความแต่ละภาพ (ไม่จำเป็นต้องตรวจทุกภาพ)</summary><div id="review-list" class="review-list" aria-live="polite"></div></details>
         <div class="footnote"><strong>สำคัญ:</strong> ระบบไม่แต่งข้อความที่หายเอง ตัดซ้ำเฉพาะหลักฐานตรงกันชัดเจน และไม่รับประกันว่าแคปครบทุกข้อความใน Discord</div>
       </section>
-    <footer>ChatLens v0.2 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
+    <footer>ChatLens v0.2.1 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
   </main>
   <script type="module" src="app.js"></script>
 </body>

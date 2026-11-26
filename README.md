@@ -1,6 +1,6 @@
 # ChatLens — Discord screenshot-to-text (Mobile first)
 
-> v0.2 · Static web app · https://haruuharuki.github.io/ChatLens/
+> v0.2.1 · Static web app · https://haruuharuki.github.io/ChatLens/
 
 **เป้าหมาย:** เลือกภาพแคป Discord หลายภาพบนมือถือ → อ่านข้อความ → คัดลอกไปวางใน ChatGPT โดยไม่ต้องครอปเอง
 
@@ -38,3 +38,12 @@
 Live site deploys from `main` via GitHub Pages. No build step.
 
 **V0.2 validation note:** Unit tests and Chrome desktop browser smoke tests do not prove real OCR accuracy or iPhone Safari behavior. Real mobile screenshots remain an acceptance gate.
+
+## v0.2.1 OCR diagnostic (2026-11-26)
+
+Tested visually against three user-provided Discord iPhone screenshots (1206 x 2622). Real screenshots are **not stored in this public repository**. The app was recognizing the whole cropped chat as one block, including embedded photo areas and colorful mention chips. Comparison of a single grayscale/contrast trial with baseline Tesseract did **not** eliminate Thai word/vowel errors. The new preprocessing remains a conservative experiment, not an accuracy guarantee.
+
+- Crop now suppresses avatars at the left and more of the bottom composer, while retaining the first visible speaker line. The crop is still heuristic for iPhone portrait Discord dark mode. Disable it if it clips text on other devices.
+- A private, original-resolution screenshot remains visible in the **current session** for manual verification; only text is persisted on-device.
+- Improve local Thai OCR with a browser-suitable Thai recognizer before claiming production-grade extraction. PaddleOCR th-rec and iApp OpenThai OCR are candidates requiring actual iPhone Safari/WASM + privacy and model licensing checks.
+- A detected photo is not a transcribed photo caption. Do not infer details of attachments from image OCR garbage.
