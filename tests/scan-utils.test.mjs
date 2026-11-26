@@ -7,6 +7,14 @@ test('mobile Discord crop excludes header/composer, keeps middle',()=>{
   assert.ok(c.y>215 && c.y<260);
   assert.ok(c.y+c.height>1570 && c.y+c.height<1660);
 });
+test('observed iPhone screenshot layout retains first speaker and skips composer',()=>{
+  // Derived only from screenshot geometry; NO private screenshot bytes committed.
+  const c=discordCropRect(1206,2622,true);
+  assert.ok(c.y>=330 && c.y<370); // first username begins at y=375 in IMG_6770
+  assert.ok(c.y+c.height<=2330 && c.y+c.height>=2315); // composer starts about y=2330
+  assert.ok(c.x>90 && c.x<125); // removes avatar without losing text at x≈140
+  assert.ok(c.x+c.width===1206);
+});
 test('desktop and disabled mode never crop',()=>{
   assert.equal(discordCropRect(1600,900,true).cropped,false);
   assert.equal(discordCropRect(816,1778,false).cropped,false);

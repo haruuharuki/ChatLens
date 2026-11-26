@@ -1,5 +1,6 @@
 import { mergeSegments, splitText, exportMarkdown } from './lib/merge.mjs';
 import { discordCropRect, checkSegmentsForReview } from './lib/scan-utils.mjs';
+import { prepareDarkChatForOCR } from './lib/ocr-preprocess.mjs';
 
 const $ = id => document.getElementById(id);
 const segments = [];
@@ -15,7 +16,7 @@ function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     try {
-      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint})=>({id,text,source,kind,confidence,second,error,fingerprint}));
+      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced}));
       const value=JSON.stringify({version:2,title:$('archive-title').value,segments:items});
       if(value.length>2500000) throw new Error('ข้อมูลมีขนาดใหญ่เกินสำหรับบันทึกในเบราว์เซอร์');
       localStorage.setItem(STORAGE_KEY,value);
@@ -40,7 +41,8 @@ function loadSession(){
         confidence:Number.isFinite(item.confidence)?item.confidence:undefined,
         second:Number.isFinite(item.second)?item.second:undefined,
         error:typeof item.error==='string'?item.error:undefined,
-        fingerprint:typeof item.fingerprint==='string'?item.fingerprint:undefined
+        fingerprint:typeof item.fingerprint==='string'?item.fingerprint:undefined,
+        enhanced:item.enhanced===true
       });
     }
     if(typeof saved.title==='string')$('archive-title').value=saved.title.slice(0,100);
@@ -179,8 +181,14 @@ async function readImageFile(file){
     const crop=discordCropRect(img.naturalWidth,img.naturalHeight,$('auto-crop').checked);
     const canvas=reducedCanvas(crop.width,crop.height);
     canvas.getContext('2d').drawImage(img,crop.x,crop.y,crop.width,crop.height,0,0,canvas.width,canvas.height);
+    // Contrast on a disposable OCR canvas only; preserve original preview.
+    let enhanced=false;
+    if(crop.cropped){
+      try{enhanced=prepareDarkChatForOCR(canvas);}
+      catch(_err){/* Low-memory Safari can reject pixel reads; use original crop instead. */}
+    }
     const result=await worker.recognize(canvas);
-    return {text:result.data.text,confidence:result.data.confidence};
+    return {text:result.data.text,confidence:result.data.confidence,enhanced};
   } finally { URL.revokeObjectURL(url); }
 }
 function waitForMedia(video,event,timeout=10000){
@@ -231,7 +239,7 @@ async function scanSelectedImages(){
       try {
         const result=await readImageFile(file);
         const target=existing||addSegment('',file.name,{kind:'image',fingerprint});
-        target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;delete target.error;
+         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;delete target.error;
         if(previews.has(target.id))URL.revokeObjectURL(previews.get(target.id));
         previews.set(target.id,URL.createObjectURL(file));
         if(existing)skipped++;
