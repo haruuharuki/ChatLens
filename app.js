@@ -1,6 +1,7 @@
 import { mergeSegments, splitText, exportMarkdown } from './lib/merge.mjs';
 import { discordCropRect, checkSegmentsForReview } from './lib/scan-utils.mjs';
-import { prepareDarkChatForOCR } from './lib/ocr-preprocess.mjs';
+import { sortCapturedFiles, sortScreenshotSegments, normalizeOCRText } from './lib/capture-utils.mjs';
+import { maskBottomPhoto } from './lib/media-guard.mjs';
 
 const $ = id => document.getElementById(id);
 const segments = [];
@@ -12,12 +13,13 @@ const STORAGE_KEY = 'chatlens-session-v02';
 const previews = new Map(); // object URLs last only while this page stays open
 let saveTimer = null;
 let storageError = false;
+let manualImageOrder = false;
 function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     try {
-      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced}));
-      const value=JSON.stringify({version:2,title:$('archive-title').value,segments:items});
+      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia}));
+      const value=JSON.stringify({version:2,title:$('archive-title').value,manualImageOrder,segments:items});
       if(value.length>2500000) throw new Error('ข้อมูลมีขนาดใหญ่เกินสำหรับบันทึกในเบราว์เซอร์');
       localStorage.setItem(STORAGE_KEY,value);
       storageError=false;
@@ -32,6 +34,7 @@ function loadSession(){
   try {
     const saved=JSON.parse(localStorage.getItem(STORAGE_KEY)||'null');
     if(saved?.version!==2 || !Array.isArray(saved.segments))return;
+    manualImageOrder=saved.manualImageOrder===true;
     for(const item of saved.segments.slice(0,800)){
       if(typeof item.text!=='string'||typeof item.source!=='string')continue;
       segments.push({
@@ -42,11 +45,12 @@ function loadSession(){
         second:Number.isFinite(item.second)?item.second:undefined,
         error:typeof item.error==='string'?item.error:undefined,
         fingerprint:typeof item.fingerprint==='string'?item.fingerprint:undefined,
-        enhanced:item.enhanced===true
+        enhanced:item.enhanced===true, hasMedia:item.hasMedia===true
       });
     }
     if(typeof saved.title==='string')$('archive-title').value=saved.title.slice(0,100);
-    if(segments.length)message(`กู้คืนข้อความที่เคยอ่านไว้ ${segments.length} ช่วง (รูปต้นฉบับไม่ได้เก็บไว้)`);
+    const sorted=sortScreenshotSegments(segments,manualImageOrder);
+    if(segments.length)message(`กู้คืนข้อความที่เคยอ่านไว้ ${segments.length} ช่วง${sorted?' · เรียงภาพ IMG_ ใหม่ตามลำดับ':''} (รูปต้นฉบับไม่ได้เก็บไว้)`);
   }catch(_){$('save-state').textContent='ไม่สามารถเปิดบันทึกเดิมได้';}
 }
 
@@ -95,7 +99,7 @@ function render() {
     const desc=document.createElement('div');
     const name=document.createElement('div'); name.className='review-name'; name.textContent=`${i+1}. ${s.source}`;
     const meta=document.createElement('div'); meta.className='review-meta';
-    meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence != null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% (ไม่ใช่ความแม่นยำ) · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร`;
+    meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence != null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% (ไม่ใช่ความแม่นยำ) · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}`;
     desc.append(name,meta);
     const actions=document.createElement('div'); actions.className='mini-actions';
     for (const [symbol,label,fn,disabled] of [
@@ -107,7 +111,7 @@ function render() {
     }
     header.append(desc,actions);
     const editor=document.createElement('textarea');editor.value=s.text;editor.setAttribute('aria-label',`แก้ไขข้อความช่วงที่ ${i+1}`);editor.spellcheck=false;
-    editor.addEventListener('input',()=>{s.text=editor.value;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร`;refreshStats();});
+    editor.addEventListener('input',()=>{s.text=editor.value;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}`;refreshStats();});
     item.append(header,editor);
     if(previews.has(s.id)){
       const previewBtn=document.createElement('button');previewBtn.className='text-button';previewBtn.type='button';previewBtn.textContent='ดูภาพต้นฉบับ';
@@ -119,7 +123,7 @@ function render() {
   }
   refreshStats();
 }
-function move(i,delta){ const j=i+delta;if(j<0||j>=segments.length)return;[segments[i],segments[j]]=[segments[j],segments[i]];render();}
+function move(i,delta){ const j=i+delta;if(j<0||j>=segments.length)return;manualImageOrder=true;[segments[i],segments[j]]=[segments[j],segments[i]];render();}
 function refreshStats(){
   const {text,notices}=mergeSegments(segments);
   const issues=checkSegmentsForReview(segments);
@@ -181,14 +185,16 @@ async function readImageFile(file){
     const crop=discordCropRect(img.naturalWidth,img.naturalHeight,$('auto-crop').checked);
     const canvas=reducedCanvas(crop.width,crop.height);
     canvas.getContext('2d').drawImage(img,crop.x,crop.y,crop.width,crop.height,0,0,canvas.width,canvas.height);
-    // Contrast on a disposable OCR canvas only; preserve original preview.
-    let enhanced=false;
+    // Do not force contrast: real Thai samples show that the old enhancement did not solve recognition.
+    // Identify only high-confidence white photo cards continuing off-screen; keep raw source intact.
+    let media=null;
     if(crop.cropped){
-      try{enhanced=prepareDarkChatForOCR(canvas);}
-      catch(_err){/* Low-memory Safari can reject pixel reads; use original crop instead. */}
+      try { media=maskBottomPhoto(canvas); }
+      catch(_err){/* Safari low-memory: do not risk losing the screenshot; OCR as-is. */}
     }
     const result=await worker.recognize(canvas);
-    return {text:result.data.text,confidence:result.data.confidence,enhanced};
+    const text=normalizeOCRText(result.data.text)+(media?'\n[ภาพแนบในแชท — ไม่ได้ถอดรายละเอียดจากรูปภาพ]':'');
+    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media};
   } finally { URL.revokeObjectURL(url); }
 }
 function waitForMedia(video,event,timeout=10000){
@@ -226,7 +232,8 @@ async function seekAndCapture(video, second){
   return canvas;
 }
 async function scanSelectedImages(){
-  const files=Array.from($('image-input').files||[]);
+  const planned=sortCapturedFiles($('image-input').files||[]);
+  const files=planned.files;
   if(!files.length){message('เลือกรูปก่อนจ้า');return;}
   if(busy)return;
   setBusy(true);let done=0;let failed=0;let skipped=0;
@@ -239,7 +246,7 @@ async function scanSelectedImages(){
       try {
         const result=await readImageFile(file);
         const target=existing||addSegment('',file.name,{kind:'image',fingerprint});
-         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;delete target.error;
+         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;delete target.error;
         if(previews.has(target.id))URL.revokeObjectURL(previews.get(target.id));
         previews.set(target.id,URL.createObjectURL(file));
         if(existing)skipped++;
@@ -251,7 +258,9 @@ async function scanSelectedImages(){
       }
       done++;render();
     }
-    message(`อ่าน ${done} ภาพแล้ว${skipped?` · อัปเดตภาพเดิม ${skipped}`:''}${failed?` · อ่านไม่สำเร็จ ${failed}`:''} · คัดลอกด้านล่างได้เลย`);
+    const sorted=sortScreenshotSegments(segments,manualImageOrder);
+    if(sorted)render();
+    message(`อ่าน ${done} ภาพแล้ว${sorted||planned.reordered?' · ✓ เรียงภาพตามเลข IMG_ แล้ว':''}${skipped?` · อัปเดตภาพเดิม ${skipped}`:''}${failed?` · อ่านไม่สำเร็จ ${failed}`:''} · คัดลอกด้านล่างได้เลย`);
     $('export-title').scrollIntoView({behavior:'smooth',block:'start'});
   } catch(err){message('❌ '+err.message);} finally {setBusy(false);render();}
 }
@@ -296,7 +305,7 @@ $('clear-all').addEventListener('click',()=>{
   if(!segments.length)return;
   if(confirm(`ต้องการลบข้อมูล ${segments.length} ช่วงที่กำลังตรวจแก้หรือไม่? ข้อมูลที่ยังไม่ได้ดาวน์โหลดจะหายไป`)){
     for(const url of previews.values())URL.revokeObjectURL(url);previews.clear();
-    segments.length=0;render();message('ล้างข้อมูลแล้ว');
+    segments.length=0;manualImageOrder=false;render();message('ล้างข้อมูลแล้ว');
   }
 });
 function downloadBlob(contents,filename,type){
