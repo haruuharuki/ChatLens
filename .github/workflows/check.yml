@@ -1,7 +1,7 @@
 name: Test
 on:
   push:
-    branches: [main]
+    branches: [main, 'feature/**']
   pull_request:
 jobs:
   unit-tests:
@@ -11,9 +11,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Run merge tests
-        run: node --test tests/merge.test.mjs
+      - name: Run unit tests
+        run: node --test tests/*.test.mjs
       - name: Check JavaScript syntax
         run: |
           node --check app.js
           node --check lib/merge.mjs
+          node --check lib/scan-utils.mjs

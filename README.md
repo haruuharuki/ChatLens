@@ -1,69 +1,40 @@
-# ChatLens — Mobile-first Discord chat capture assistant
+# ChatLens — Discord screenshot-to-text (Mobile first)
 
-> v0.1 prototype · Static web app · ไม่ใช่ Discord API exporter
+> v0.2 · Static web app · https://haruuharuki.github.io/ChatLens/
 
-เว็บแอปสำหรับ **จัดข้อความจากภาพหน้าจอ วิดีโอที่ผู้ใช้บันทึกเอง และข้อความที่คัดลอกเอง** ให้กลายเป็นไฟล์สำหรับ AI อ่าน โดยไม่ใช้ Discord Token ไม่เข้าสู่ระบบ ไม่ทำ self-bot และไม่ดึงข้อมูลจาก Discord อัตโนมัติ
+**เป้าหมาย:** เลือกภาพแคป Discord หลายภาพบนมือถือ → อ่านข้อความ → คัดลอกไปวางใน ChatGPT โดยไม่ต้องครอปเอง
 
-## ใช้งาน
+## วิธีใช้
 
-1. เปิดเว็บไซต์ผ่าน Safari (iPhone) / Chrome (Android/PC) บน HTTPS
-2. เลือก **ภาพ** แล้วเพิ่มภาพจากแชทหลายภาพตามลำดับ หรือเลือก **ข้อความ** แล้ววางข้อความ
-3. กดอ่านอักษรด้วย OCR ไทย+อังกฤษ ระบบต้องโหลด JavaScript OCR และโมเดลจาก CDN ก่อน (เครือข่ายจำเป็นสำหรับการโหลด)
-4. ตรวจแก้ข้อความ ลำดับภาพ และ **รอยต่อ** ที่ระบบแจ้งเตือน
-5. ส่งออกเป็น Markdown / TXT / JSON เพื่อใช้ต่อกับ ChatGPT
+1. เปิดเว็บใน Safari/Chrome → แท็บ **ภาพ** → เลือกภาพแชทหลายภาพพร้อมกัน
+2. แอปเริ่ม OCR ไทย+อังกฤษทันที ใช้ Tesseract.js โหลดจาก CDN ผ่านอินเทอร์เน็ต และทำงานบนอุปกรณ์ผู้ใช้
+3. แอปตัดแถบด้านบน/ด้านล่าง **เฉพาะภาพมือถือแนวตั้งที่มีสัดส่วนใกล้หน้าจอ** (heuristic) หากครอปผิดให้ปิดตัวเลือกก่อนเลือกภาพใหม่ หรือกด *อ่านภาพที่เลือกอีกครั้ง* หลังปิดตัวเลือก
+4. แสดงข้อความรวมทันทีพร้อมปุ่ม **คัดลอกบทสนทนาไปวางใน ChatGPT**
+5. หากมีคำเตือนกดตรวจเฉพาะภาพที่เสี่ยง เปิดดูข้อความดิบและภาพต้นฉบับได้ในรอบนั้น; เรียงลำดับภาพขึ้น/ลงเองได้
+6. ดาวน์โหลดไฟล์ Markdown, TXT, JSON ได้จากตัวเลือกเพิ่มเติม
 
-**วิดีโอเป็นโหมดทดลอง:** อ่านได้สูงสุด 48 เฟรมต่อรอบตามช่วงวินาทีที่เลือก และเฉพาะช่วงต้นวิดีโอเมื่อคลิปยาว การเลื่อนต้องช้าและเฟรมควรซ้อนทับกัน วิดีโอ MOV/HEVC บางแบบไม่รองรับบนมือถือ บางเครื่องอาจ seek ไม่ได้ ต้องลองไฟล์จริงก่อนใช้งานสำคัญ
+## ข้อจำกัดและข้อตกลง
 
-## สถาปัตยกรรม v0.1
+- **OCR ไม่ใช่ข้อมูลจาก Discord API** ไม่มี token, bot, self-bot หรือ scraping ภาพต้องได้จากผู้ใช้บันทึกเอง
+- **ไม่มีการรับประกันความครบหรือความถูกต้อง:** ไม่อ่านรูป/emoji ทั้งหมดได้เสมอ และคะแนน confidence ไม่ใช่เปอร์เซ็นต์ความถูกต้องของเนื้อหา
+- ครอปอัตโนมัติเป็น **ประมาณตำแหน่ง UI** (crop ตามสัดส่วน) อาจตัดเนื้อหาบางกรณี โดยเฉพาะ Discord รุ่นหรือขนาดหน้าจออื่น สามารถปิดได้ก่อน OCR และอ่านภาพเดิมอีกครั้ง
+- ระบบ **ไม่แอบลบข้อความที่คล้ายกัน** จะตัดข้อความซ้ำเฉพาะบรรทัดตรงกันชัดเจนและแจ้งรอยต่อที่ตรวจสอบไม่ได้
+- ไม่จัดลำดับภาพโดยเดาวันที่: หากตรวจพบเวลาภาพย้อนจะเตือนให้ผู้ใช้ตรวจลำดับเอง
+- บันทึก **เฉพาะข้อความ OCR และข้อมูลต้นทางแบบข้อความ** ลง localStorage บนเบราว์เซอร์เครื่องนั้นโดยอัตโนมัติ ไม่เก็บภาพต้นฉบับในฐานข้อมูล และไม่มี backend รูปตัวอย่างแสดงได้เฉพาะรอบที่ยังเปิดแท็บอยู่; ปุ่ม *ล้างทั้งหมด* ลบข้อความที่บันทึกไว้หลังเขียนเสร็จ
+- **ข้อมูลไม่ส่งเข้า server ของ ChatLens** แต่ Tesseract.js และโมเดล/ไฟล์ภาษาต้องโหลดจาก CDN ครั้งแรก และไม่มีการรับประกันการทำงานออฟไลน์
+- บราว์เซอร์ Private Mode, การล้าง Site Data หรือ Storage quota อาจทำให้ข้อความที่เก็บไว้หายได้ ควรกดคัดลอก/ดาวน์โหลดเมื่อข้อมูลสำคัญ
+- **Video to Chat** ยังเป็นโหมดทดลอง 48 เฟรมสูงสุด/ครั้ง โดยไฟล์ MOV/HEVC บางแบบอ่านไม่ได้บนมือถือ
+- ควรเคารพกฎของคอมมูและสิทธิส่วนบุคคลของสมาชิก อย่าใส่ภาพแชทจริงลง Repository สาธารณะ
 
-- `index.html` — หน้า Mobile-first
-- `styles.css` — Responsive design (mobile/desktop)
-- `app.js` — การนำเข้า, OCR, อ่านเฟรมวิดีโอ, ตรวจแก้, ดาวน์โหลด
-- `lib/merge.mjs` — ตรวจบรรทัดซ้ำแบบ conservative, ทำเครื่องหมายรอยต่อไม่ยืนยัน, split/export
-- `tests/merge.test.mjs` — ทดสอบ core merge
-- `icon.svg` — Favicon
-- `.nojekyll` — GitHub Pages static
+## Source and development
 
-ใช้ vanilla JS ไม่ต้อง build. **ไม่มี backend / ฐานข้อมูล / การอัปโหลดอัตโนมัติ** ไฟล์เข้าไปประมวลผลในเบราว์เซอร์ ผู้ใช้ยังต้องรับผิดชอบการเก็บและการแชร์ไฟล์เอง โค้ด OCR และโมเดล Tesseract ถูกดาวน์โหลดจาก CDN และอาจมีการร้องขอทรัพยากรเครือข่าย ไม่ควรถือว่าเป็นแอป offline 100%
+- `index.html`, `styles.css` — mobile-first UI + output-first copy
+- `app.js` — OCR, local text restore, review, copy/export
+- `lib/merge.mjs` — conservative overlap and export
+- `lib/scan-utils.mjs` — mobile crop/optional timeline warning
+- `tests/*.test.mjs` — baseline + safety tests, run `node --test tests/*.test.mjs`
+- `.github/workflows/check.yml` — Node tests and JavaScript syntax check on GitHub Actions
 
-## ทดสอบในเครื่อง
+Live site deploys from `main` via GitHub Pages. No build step.
 
-```bash
-node --test tests/merge.test.mjs
-python -m http.server 8080
-```
-
-เปิด http://localhost:8080/ บนคอม (การเปิดด้วย `file://` อาจบล็อก JS modules) หากจะลองผ่านมือถือ ให้ใช้ HTTPS ที่ deploy จริงหรือ local server ในเครือข่ายเดียวกันเมื่ออุปกรณ์ยอมรับ
-
-## การเผยแพร่ผ่าน GitHub Pages
-
-1. Repository นี้เริ่มต้นเป็น **Private**; โปรดตรวจสิทธิ์ GitHub Pages ของแพ็กเกจที่ใช้อยู่ก่อน (GitHub Free มักต้องใช้ Public repository)
-2. ใน GitHub → Settings → Pages → Build and deployment เลือก Deploy from a branch → `main` → `/(root)` หากบัญชีและ Repository รองรับ
-3. หลัง GitHub แสดง URL ทดสอบจริงบนมือถือ โดยเฉพาะ iPhone Safari และ Android Chrome
-4. แอปเป็น Static ไม่มีระบบจัดเก็บวิดีโอหรือแชทบนเซิร์ฟเวอร์ แต่ CDN OCR ต้องใช้อินเทอร์เน็ตตอนโหลด
-5. **อย่าอัปโหลดภาพ/วิดีโอแชทของผู้เล่นเข้าสู่ repository ไม่ว่าจะ Private หรือ Public**
-
-GitHub Pages ใช้ HTTPS โดยปกติเมื่อเว็บถูกเผยแพร่ผ่านโดเมนของ GitHub หรือโดเมนที่ตั้ง HTTPS ถูกต้อง ไม่ต้องมี GitHub Actions ในเวอร์ชันนี้
-
-## ข้อจำกัดที่ไม่ควรมองข้าม
-
-- **ไม่รับประกันประวัติแชทครบ:** เฟรมที่ถูกข้าม หรือข้อความที่ Discord ยังไม่โหลด อาจไม่ปรากฏในไฟล์
-- **ไม่สามารถพิสูจน์ความต่อเนื่อง:** เครื่องหมาย `[ตรวจสอบรอยต่อ]` แปลว่าไม่มีหลักฐานเพียงพอ—not necessarily missing messages
-- OCR ภาษาไทย/อังกฤษอาจผิดมากโดยเฉพาะภาพตัวหนังสือเล็ก ชื่อผู้พูด สติกเกอร์ อีโมจิ ข้อความหลายบรรทัด และข้อความทับซ้อน
-- ตัดข้อความซ้ำเฉพาะเมื่อพบอย่างน้อยสองบรรทัดที่ตรงกันและมีความยาวเพียงพอ ระบบตั้งใจเลือกความปลอดภัยของเนื้อหา มากกว่าความเนียน
-- **Video to Chat เป็นเบตา** ภาพเบลอ การ scroll เร็ว หรือ codec จะทำให้ไม่สมบูรณ์
-- ขณะ Export บนมือถือ เบราว์เซอร์อาจบล็อกการดาวน์โหลดหลายไฟล์ ให้ลอง TXT หรือเพิ่ม chunk size
-- หลีกเลี่ยงการนำข้อมูลส่วนตัว / แชทในคอมมูที่ห้ามเผยแพร่ไปโพสต์สาธารณะ
-- ออกแบบแอปเป็นแบบ Local-first; เวอร์ชันนี้ไม่มีระบบ Resume/Save session หากปิดแท็บ ข้อมูลที่ยังไม่ได้ดาวน์โหลดจะหายไป
-
-## แผนรุ่นถัดไป
-
-- V0.2 เก็บสถานะงานใน IndexedDB บนอุปกรณ์ (ต้องออกแบบระบบจัดการข้อมูลส่วนตัวก่อน)
-- V0.2 ตัวช่วยปิดชื่อ / ตรวจข้อความก่อนแชร์
-- V0.3 รองรับวิดีโอยาวด้วยการอ่านเป็นช่วง ๆ และตรวจจับ scroll overlap ด้วยพิกัดภาพ
-- V0.3 ปรับการแยกผู้พูด/เวลา และผู้ใช้ยืนยันเอง
-- V1.0 ชุดทดสอบด้วยภาพจากมือถือจริงและรายงานคุณภาพ OCR ภาษาไทย
-
-## License and privacy
-
-Prototype for personal use. Discord is a trademark of its respective owner. Respect server rules, other members' privacy, and the platform's Terms of Service. This software does not interact with Discord services programmatically.
+**V0.2 validation note:** Unit tests and Chrome desktop browser smoke tests do not prove real OCR accuracy or iPhone Safari behavior. Real mobile screenshots remain an acceptance gate.

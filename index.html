@@ -18,9 +18,9 @@
   </header>
   <main id="home" class="layout">
     <section class="hero">
-      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.1</div>
-      <h1>เก็บแชทให้ครบเรื่อง<br><span>โดยไม่ต้องคัดลอกทีละข้อความ</span></h1>
-      <p>นำเข้าภาพแคปหน้าจอ วิดีโอที่อัดไว้ หรือข้อความที่คัดลอกเอง แล้วตรวจแก้ก่อนส่งเป็นไฟล์ให้ AI อ่าน</p>
+      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.2</div>
+      <h1>แคปแชท แล้วคัดลอกได้เลย<br><span>ไม่ต้องครอปเองทีละภาพ</span></h1>
+      <p>เลือกภาพจากมือถือหลายภาพ ระบบจะอ่านข้อความและเตือนจุดที่ยังไม่แน่ใจ ก่อนคัดลอกไปวางใน ChatGPT</p>
       <div class="callout"><span>🔐</span><span>ไม่เชื่อมบัญชี Discord ไม่ใช้ User Token ไม่ส่งภาพหรือข้อความไปยังเซิร์ฟเวอร์ของแอป <strong>แต่ต้องใช้อินเทอร์เน็ตเพื่อโหลดตัว OCR ครั้งแรก</strong></span></div>
     </section>
     <div class="workspace">
@@ -32,9 +32,10 @@
           <button id="tab-text" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-text">✏️ ข้อความ</button>
         </div>
         <div id="panel-image" class="tab-panel">
-          <label class="upload-box" for="image-input"><span class="upload-emoji">☁️</span><strong>แตะเพื่อเลือกรูปภาพ</strong><span>รองรับหลายภาพพร้อมกัน · JPG, PNG, WebP</span><em>ภาพจะเรียงตามลำดับที่เลือก กรุณาตรวจลำดับก่อนส่งออก</em></label>
+          <label class="upload-box" for="image-input"><span class="upload-emoji">☁️</span><strong>แตะเลือกภาพแชทจากอัลบั้ม</strong><span>เลือกหลายภาพได้ • อ่านข้อความให้อัตโนมัติ</span><em>ไม่ต้องครอปก่อน • หากเวลาในภาพไม่เรียง ระบบจะแจ้งให้ตรวจ</em></label>
           <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple hidden>
-          <button id="start-image" class="primary full" type="button">อ่านตัวอักษรจากภาพ</button>
+          <label class="toggle-line"><input id="auto-crop" type="checkbox" checked> ตัดแถบหัวห้องและช่องพิมพ์ Discord บนภาพมือถือ</label>
+          <button id="start-image" class="secondary full" type="button">อ่านภาพที่เลือกอีกครั้ง</button>
         </div>
         <div id="panel-video" class="tab-panel" hidden>
           <label class="upload-box" for="video-input"><span class="upload-emoji">▶</span><strong>แตะเพื่อเลือกวิดีโอ</strong><span>MP4, MOV, WebM ขึ้นอยู่กับเบราว์เซอร์</span><em>ไม่รองรับทุก codec บนมือถือ · เหมาะกับคลิปสั้น</em></label>
@@ -49,27 +50,34 @@
           <textarea id="pasted-text" rows="7" placeholder="วางข้อความ Discord ที่คัดลอกไว้ตรงนี้..." spellcheck="false"></textarea>
           <button id="add-text" class="primary full" type="button">เพิ่มข้อความลงคลัง</button>
         </div>
-        <div class="file-summary" id="file-summary" aria-live="polite">ยังไม่มีไฟล์ที่เลือก</div>
+        <div class="file-summary" id="file-summary" aria-live="polite">ยังไม่มีไฟล์ที่เลือก</div><div class="subtle save-state" id="save-state" role="status">บันทึกข้อความที่อ่านได้ไว้บนอุปกรณ์นี้อัตโนมัติ (ไม่บันทึกรูป)</div>
         <div class="progress" id="progress-box" hidden><div class="progress-header"><span id="status-label">กำลังประมวลผล...</span><span id="progress-number">0%</span></div><div class="progress-track"><div id="progress-bar"></div></div></div>
       </section>
-      <section class="panel review-panel" aria-labelledby="review-title">
-        <div class="panel-heading"><div><span class="step-number">02</span><h2 id="review-title">ตรวจและจัดลำดับ</h2></div><button id="clear-all" type="button" class="text-button">ล้างทั้งหมด</button></div>
-        <div id="empty-state" class="empty-state"><span>🗂️</span><strong>บทสนทนาของเธอจะอยู่ตรงนี้</strong><p>เริ่มจากอัปโหลดภาพหรือวางข้อความสักช่วงหนึ่ง แล้วกลับมาตรวจคำที่ OCR อ่านผิดได้เลย</p><button id="demo" class="secondary" type="button">ทดลองด้วยข้อความตัวอย่าง</button></div>
-        <div id="review-list" class="review-list" aria-live="polite"></div>
-        <div class="footnote"><strong>สำคัญ:</strong> ระบบตัดข้อความซ้ำเฉพาะเมื่อมีบรรทัดที่ตรงกันหลายบรรทัด และจะทำเครื่องหมายรอยต่อที่ยังตรวจสอบไม่ได้ ไม่รับประกันว่าครบทุกข้อความใน Discord</div>
-      </section>
-    </div>
-    <section class="panel export-panel" aria-labelledby="export-title">
-      <div class="panel-heading"><div><span class="step-number">03</span><h2 id="export-title">ส่งออกให้ AI อ่าน</h2></div><span id="export-stats" class="subtle">0 ช่วง</span></div>
+
+      <section class="panel export-panel" aria-labelledby="export-title">
+      <div class="panel-heading"><div><span class="step-number">02</span><h2 id="export-title">ส่งออกให้ AI อ่าน</h2></div><span id="export-stats" class="subtle">0 ช่วง</span></div>
       <div class="export-grid">
         <div><label class="field-label" for="archive-title">ชื่อเรื่อง / ห้อง</label><input id="archive-title" value="Discord Chat Archive" maxlength="100"></div>
         <div><label class="field-label" for="chunk-size">ขนาดไฟล์ Markdown</label><select id="chunk-size"><option value="4000">4,000 ตัวอักษร / ไฟล์</option><option value="8000" selected>8,000 ตัวอักษร / ไฟล์</option><option value="15000">15,000 ตัวอักษร / ไฟล์</option></select></div>
       </div>
       <div id="merge-summary" class="merge-summary">เพิ่มข้อความเพื่อดูผลรวมและรอยต่อที่ยังไม่ยืนยัน</div>
-      <div class="action-row"><button id="export-md" class="primary" type="button" disabled>↓ ดาวน์โหลด Markdown</button><button id="export-txt" class="secondary" type="button" disabled>TXT</button><button id="export-json" class="secondary" type="button" disabled>JSON</button></div>
+      <button id="copy-text" class="primary full copy-main" type="button" disabled>📋 คัดลอกบทสนทนาไปวางใน ChatGPT</button>
+      <p class="hint">คัดลอกทั้งข้อความพร้อมหมายเหตุรอยต่อที่ไม่แน่ใจได้ทันที ไม่ต้องดาวน์โหลดไฟล์</p>
+      <textarea id="merged-preview" rows="7" readonly aria-label="ข้อความทั้งหมดที่พร้อมคัดลอก" placeholder="ข้อความที่อ่านได้จะปรากฏที่นี่"></textarea>
+      <details class="download-options"><summary>ตัวเลือกเพิ่มเติม · ดาวน์โหลดไฟล์</summary>
+        <div class="action-row"><button id="export-md" class="secondary" type="button" disabled>Markdown</button><button id="export-txt" class="secondary" type="button" disabled>TXT</button><button id="export-json" class="secondary" type="button" disabled>JSON</button></div>
+      </details>
       <p class="hint">การแบ่ง Markdown จะดาวน์โหลดหลายไฟล์ตามความยาวข้อความ ระบบไม่ส่งไฟล์ออกจากเครื่องอัตโนมัติ ตรวจสอบกฎคอมมูและข้อมูลส่วนตัวก่อนแชร์ต่อ</p>
     </section>
-    <footer>ChatLens v0.1 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
+    </div>
+    <section class="panel review-panel" aria-labelledby="review-title">
+        <div class="panel-heading"><div><span class="step-number">03</span><h2 id="review-title">จุดที่ควรตรวจ (ไม่บังคับ)</h2></div><button id="clear-all" type="button" class="text-button">ล้างทั้งหมด</button></div>
+        <div id="empty-state" class="empty-state"><span>🗂️</span><strong>บทสนทนาของเธอจะอยู่ตรงนี้</strong><p>เริ่มจากอัปโหลดภาพหรือวางข้อความสักช่วงหนึ่ง แล้วกลับมาตรวจคำที่ OCR อ่านผิดได้เลย</p><button id="demo" class="secondary" type="button">ทดลองด้วยข้อความตัวอย่าง</button></div>
+        <div id="review-alerts" class="review-alerts" aria-live="polite"></div>
+        <details id="review-details" class="review-details"><summary>เปิดดู / แก้ไขข้อความแต่ละภาพ (ไม่จำเป็นต้องตรวจทุกภาพ)</summary><div id="review-list" class="review-list" aria-live="polite"></div></details>
+        <div class="footnote"><strong>สำคัญ:</strong> ระบบไม่แต่งข้อความที่หายเอง ตัดซ้ำเฉพาะหลักฐานตรงกันชัดเจน และไม่รับประกันว่าแคปครบทุกข้อความใน Discord</div>
+      </section>
+    <footer>ChatLens v0.2 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
   </main>
   <script type="module" src="app.js"></script>
 </body>
