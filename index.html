@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#141923">
+  <meta name="description" content="จัดเก็บข้อความจากภาพ วิดีโอ และข้อความที่คุณบันทึกเองจาก Discord โดยไม่ต้องใช้ Token">
+  <title>ChatLens — Chat OCR to AI</title>
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="top-inner">
+      <a class="brand" href="#home" aria-label="ChatLens หน้าหลัก"><span class="brand-icon">✦</span><span>Chat<span class="brand-muted">Lens</span></span></a>
+      <span class="privacy-pill"><span class="privacy-dot"></span>ประมวลผลบนอุปกรณ์</span>
+    </div>
+  </header>
+  <main id="home" class="layout">
+    <section class="hero">
+      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.1</div>
+      <h1>เก็บแชทให้ครบเรื่อง<br><span>โดยไม่ต้องคัดลอกทีละข้อความ</span></h1>
+      <p>นำเข้าภาพแคปหน้าจอ วิดีโอที่อัดไว้ หรือข้อความที่คัดลอกเอง แล้วตรวจแก้ก่อนส่งเป็นไฟล์ให้ AI อ่าน</p>
+      <div class="callout"><span>🔐</span><span>ไม่เชื่อมบัญชี Discord ไม่ใช้ User Token ไม่ส่งภาพหรือข้อความไปยังเซิร์ฟเวอร์ของแอป <strong>แต่ต้องใช้อินเทอร์เน็ตเพื่อโหลดตัว OCR ครั้งแรก</strong></span></div>
+    </section>
+    <div class="workspace">
+      <section class="panel import-panel" aria-labelledby="import-title">
+        <div class="panel-heading"><div><span class="step-number">01</span><h2 id="import-title">นำเข้าบทสนทนา</h2></div><span class="subtle">เลือกวิธีที่สะดวก</span></div>
+        <div class="tabs" role="tablist" aria-label="วิธีนำเข้า">
+          <button id="tab-image" class="tab active" type="button" role="tab" aria-selected="true" aria-controls="panel-image">🖼️ ภาพ</button>
+          <button id="tab-video" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-video">🎬 วิดีโอ <small>ทดลอง</small></button>
+          <button id="tab-text" class="tab" type="button" role="tab" aria-selected="false" aria-controls="panel-text">✏️ ข้อความ</button>
+        </div>
+        <div id="panel-image" class="tab-panel">
+          <label class="upload-box" for="image-input"><span class="upload-emoji">☁️</span><strong>แตะเพื่อเลือกรูปภาพ</strong><span>รองรับหลายภาพพร้อมกัน · JPG, PNG, WebP</span><em>ภาพจะเรียงตามลำดับที่เลือก กรุณาตรวจลำดับก่อนส่งออก</em></label>
+          <input id="image-input" type="file" accept="image/png,image/jpeg,image/webp,image/*" multiple hidden>
+          <button id="start-image" class="primary full" type="button">อ่านตัวอักษรจากภาพ</button>
+        </div>
+        <div id="panel-video" class="tab-panel" hidden>
+          <label class="upload-box" for="video-input"><span class="upload-emoji">▶</span><strong>แตะเพื่อเลือกวิดีโอ</strong><span>MP4, MOV, WebM ขึ้นอยู่กับเบราว์เซอร์</span><em>ไม่รองรับทุก codec บนมือถือ · เหมาะกับคลิปสั้น</em></label>
+          <input id="video-input" type="file" accept="video/*,.mp4,.mov,.webm" hidden>
+          <label class="field-label" for="interval">อ่านภาพทุก ๆ กี่วินาที</label>
+          <select id="interval"><option value="0.5">0.5 วินาที (ละเอียด ช้า)</option><option value="1" selected>1 วินาที (แนะนำ)</option><option value="2">2 วินาที (เร็ว อาจข้ามข้อความ)</option></select>
+          <p class="hint">สูงสุด 48 เฟรมต่อรอบ หากคลิปยาวจะอ่านเพียงช่วงต้น โปรดแบ่งคลิปก่อนนำเข้า และเลื่อนแชทช้า ๆ ให้เฟรมซ้อนทับกัน</p>
+          <button id="start-video" class="primary full" type="button">ลองอ่านข้อความจากวิดีโอ</button>
+        </div>
+        <div id="panel-text" class="tab-panel" hidden>
+          <label class="field-label" for="pasted-text">วางบทสนทนา</label>
+          <textarea id="pasted-text" rows="7" placeholder="วางข้อความ Discord ที่คัดลอกไว้ตรงนี้..." spellcheck="false"></textarea>
+          <button id="add-text" class="primary full" type="button">เพิ่มข้อความลงคลัง</button>
+        </div>
+        <div class="file-summary" id="file-summary" aria-live="polite">ยังไม่มีไฟล์ที่เลือก</div>
+        <div class="progress" id="progress-box" hidden><div class="progress-header"><span id="status-label">กำลังประมวลผล...</span><span id="progress-number">0%</span></div><div class="progress-track"><div id="progress-bar"></div></div></div>
+      </section>
+      <section class="panel review-panel" aria-labelledby="review-title">
+        <div class="panel-heading"><div><span class="step-number">02</span><h2 id="review-title">ตรวจและจัดลำดับ</h2></div><button id="clear-all" type="button" class="text-button">ล้างทั้งหมด</button></div>
+        <div id="empty-state" class="empty-state"><span>🗂️</span><strong>บทสนทนาของเธอจะอยู่ตรงนี้</strong><p>เริ่มจากอัปโหลดภาพหรือวางข้อความสักช่วงหนึ่ง แล้วกลับมาตรวจคำที่ OCR อ่านผิดได้เลย</p><button id="demo" class="secondary" type="button">ทดลองด้วยข้อความตัวอย่าง</button></div>
+        <div id="review-list" class="review-list" aria-live="polite"></div>
+        <div class="footnote"><strong>สำคัญ:</strong> ระบบตัดข้อความซ้ำเฉพาะเมื่อมีบรรทัดที่ตรงกันหลายบรรทัด และจะทำเครื่องหมายรอยต่อที่ยังตรวจสอบไม่ได้ ไม่รับประกันว่าครบทุกข้อความใน Discord</div>
+      </section>
+    </div>
+    <section class="panel export-panel" aria-labelledby="export-title">
+      <div class="panel-heading"><div><span class="step-number">03</span><h2 id="export-title">ส่งออกให้ AI อ่าน</h2></div><span id="export-stats" class="subtle">0 ช่วง</span></div>
+      <div class="export-grid">
+        <div><label class="field-label" for="archive-title">ชื่อเรื่อง / ห้อง</label><input id="archive-title" value="Discord Chat Archive" maxlength="100"></div>
+        <div><label class="field-label" for="chunk-size">ขนาดไฟล์ Markdown</label><select id="chunk-size"><option value="4000">4,000 ตัวอักษร / ไฟล์</option><option value="8000" selected>8,000 ตัวอักษร / ไฟล์</option><option value="15000">15,000 ตัวอักษร / ไฟล์</option></select></div>
+      </div>
+      <div id="merge-summary" class="merge-summary">เพิ่มข้อความเพื่อดูผลรวมและรอยต่อที่ยังไม่ยืนยัน</div>
+      <div class="action-row"><button id="export-md" class="primary" type="button" disabled>↓ ดาวน์โหลด Markdown</button><button id="export-txt" class="secondary" type="button" disabled>TXT</button><button id="export-json" class="secondary" type="button" disabled>JSON</button></div>
+      <p class="hint">การแบ่ง Markdown จะดาวน์โหลดหลายไฟล์ตามความยาวข้อความ ระบบไม่ส่งไฟล์ออกจากเครื่องอัตโนมัติ ตรวจสอบกฎคอมมูและข้อมูลส่วนตัวก่อนแชร์ต่อ</p>
+    </section>
+    <footer>ChatLens v0.1 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
+  </main>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
