@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#141923">
+<title>ChatLens — Phase C Batch OCR</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;color:#f1f0fb;background:#12151e}
+*{box-sizing:border-box}body{margin:0}main{max-width:880px;margin:auto;padding:16px 14px 88px}a{color:#bbb0ff}h1{font-size:1.5rem;margin:.5rem 0}h2{font-size:1.1rem}p{color:#c8cbd9;line-height:1.55}small,.muted{color:#aeb5ce}.card{background:#1d2130;border:1px solid #40445e;border-radius:16px;padding:16px;margin:16px 0}.notice{background:#141a2b;border:1px solid #565a76;border-radius:10px;padding:12px;overflow-wrap:anywhere;white-space:pre-wrap}
+label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,textarea{width:100%;display:block;border-radius:10px;padding:12px;border:1px solid #565d77;color:#fff;background:#101627;font:inherit}textarea{resize:vertical;min-height:72px;line-height:1.5}button{border:none;border-radius:10px;padding:12px 15px;font:inherit;font-weight:700;color:#1c1731;background:#aea1ff;cursor:pointer;min-height:46px}button:disabled{opacity:.5;cursor:not-allowed}.alt{background:#343b52;color:#fff}.warn{background:#725467;color:#fff}.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.controls button:first-child{grid-column:1 / -1}.check{display:flex;gap:10px;align-items:start;font-weight:400}.check input{margin-top:7px}progress{width:100%;height:14px;accent-color:#b5a6ff;margin:8px 0}
+.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.stat{background:#101627;border-radius:10px;padding:10px}.stat strong{display:block;font-size:1.15rem}.results{display:grid;gap:12px}.result-row{background:#161b29;border:1px solid #424760;border-radius:13px;padding:12px}.row-head{display:flex;gap:8px;align-items:center;justify-content:space-between}.row-head strong{font-size:1rem}.tag{font-size:.8rem;padding:4px 8px;border-radius:99px;background:#3a405b;white-space:nowrap}.tag.same{background:#254d42}.tag.diff{background:#69502c}.tag.fail{background:#633e4a}.original{background:#10131d;border:1px solid #46445a;border-radius:9px;padding:6px;width:100%;max-height:86px;object-fit:contain;object-position:left center;margin:10px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pair > div{min-width:0}.pair-title{color:#bcb5f7;font-size:.86rem;margin-bottom:5px}.recognized{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1120;border:1px solid #38405d;padding:9px;border-radius:9px;min-height:80px;line-height:1.5}.changed{background:#88602e;color:#fff7dc;border-radius:2px}.truth{margin:10px 0 0}.truth textarea{min-height:62px}.score{font-size:.85rem;color:#c0baf5;margin-top:6px}.help{font-size:.87rem;color:#b9bccd}
+@media(max-width:560px){main{padding:13px 12px 80px}.pair{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.controls button:first-child{grid-column:auto}.card{padding:13px}.recognized{min-height:0}}
+</style>
+</head>
+<body><main>
+<p><a href="./">← OCR Benchmark</a> · <a href="openthai.html">ทดสอบทีละบรรทัด</a> · <a href="../">ChatLens หลัก</a></p>
+<h1>🔬 Phase C — Batch OCR Comparison</h1>
+<p>เลือกภาพ Discord ใบเดียว แล้วเปรียบเทียบ <b>Tesseract</b> กับ <b>OpenThai 2.1 ONNX</b> หลายบรรทัด โดยโหลดโมเดล OpenThai ครั้งเดียว ระบบไฮไลต์ข้อความที่ต่างกัน แต่<b>ไม่ได้ตัดสินว่าตัวไหนถูก</b> จนกว่าจะกรอกข้อความเฉลย</p>
+<div class="card">
+ <h2>1. เลือกภาพและเริ่มทดลอง</h2>
+ <label for="photo">ภาพ Discord</label><input id="photo" type="file" accept="image/*">
+ <label for="scope">จำนวนบรรทัดที่จะเทียบ</label>
+ <select id="scope"><option value="sample12">เลือกกระจายตามตำแหน่ง 12 บรรทัดเนื้อหา (แนะนำสำหรับ iPhone)</option><option value="bodyall">ทุกบรรทัดเนื้อหาที่ตรวจพบ (ไม่เกิน 60)</option><option value="all">ทุกบรรทัด รวมชื่อและเวลา (ไม่เกิน 60)</option></select>
+ <label class="check"><input id="crop" type="checkbox" checked>ใช้ Auto Crop Discord</label>
+ <label class="check"><input id="invert" type="checkbox" checked>กลับสีพื้นหลังมืดเป็นสว่างก่อนให้ OpenThai อ่าน (ทดลอง)</label>
+ <label for="channels">ลำดับสีของ OpenThai</label><select id="channels"><option value="bgr">BGR (ค่าเริ่มต้น)</option><option value="rgb">RGB (ทางเลือกทดลอง)</option></select>
+ <div class="controls"><button id="start" type="button">เริ่มเปรียบเทียบหลายบรรทัด</button><button id="stop" class="warn" type="button" disabled>หยุดหลังบรรทัดปัจจุบัน</button><button id="copy-safe" class="alt" type="button" disabled>คัดลอกสรุปเทคนิค (ไม่รวมแชท)</button></div>
+ <progress id="progress" max="1" value="0"></progress><p id="status" class="notice" role="status" aria-live="polite">พร้อมทดลอง · ไม่มีการอัปโหลดภาพหรือข้อความไปยังบริการ OCR</p>
+ <p class="help">ภาพและข้อความอยู่ในหน่วยความจำเบราว์เซอร์ ไม่บันทึกลง localStorage และไม่ส่งเข้า GitHub/CDN มีการดาวน์โหลดโมเดลและ JavaScript จาก CDN/Hugging Face เท่านั้น การรันหลายบรรทัดอาจใช้เวลาหรือหน่วยความจำมากบนมือถือ</p>
+</div>
+<div class="card" id="report" hidden>
+ <h2>2. สรุปผลเบื้องต้น</h2><div id="stats" class="stats"></div><p id="accuracy" class="notice">บรรทัดที่อ่านเหมือนกัน ไม่ได้แปลว่าอ่านถูก</p>
+ <button id="copy-text" class="alt" type="button">คัดลอกผลเทียบที่มีข้อความแชท</button>
+ <p class="help">ปุ่มนี้คัดลอกข้อความแชทจริง โปรดระวังเมื่อนำไปแชร์ ส่วนปุ่มสรุปเทคนิคด้านบนไม่รวมเนื้อหาแชท</p>
+</div>
+<div id="results" class="results" aria-live="off"></div>
+<div id="fallback" class="card" hidden><label for="fallback-text">เลือกคัดลอกข้อความนี้ด้วยตนเอง</label><textarea id="fallback-text" rows="10"></textarea></div>
+<div class="card"><h2>ขอบเขตของการทดลอง</h2><p>ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></div>
+</main><script type="module" src="./batch.js?build=phasec-20261127"></script></body></html>
