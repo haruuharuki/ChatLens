@@ -29,3 +29,5 @@ jobs:
           node --check bench/openthai.js
           node --check bench/openthai-core.mjs
           node --check bench/runtime-loader.mjs
+          node --check bench/batch.js
+          node --check bench/batch-core.mjs
