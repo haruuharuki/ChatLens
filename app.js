@@ -2,6 +2,7 @@ import { mergeSegments, splitText, exportMarkdown } from './lib/merge.mjs';
 import { discordCropRect, checkSegmentsForReview } from './lib/scan-utils.mjs';
 import { sortCapturedFiles, sortScreenshotSegments, normalizeOCRText } from './lib/capture-utils.mjs';
 import { maskBottomPhoto } from './lib/media-guard.mjs';
+import { maskReactionRows } from './lib/reaction-guard.mjs';
 import { VISUAL_WIDTH, lumaFromRGBA, detectVisualOverlap } from './lib/visual-overlap.mjs';
 import { extractOCRLines, structureOCRLines, formatStructuredSegments } from './lib/discord-structure.mjs';
 
@@ -20,7 +21,7 @@ function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     try {
-      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap,messages,structuredValid})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap,messages,structuredValid}));
+      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap,reactionRows,messages,structuredValid})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap,reactionRows,messages,structuredValid}));
       const value=JSON.stringify({version:2,title:$('archive-title').value,manualImageOrder,segments:items});
       if(value.length>2500000) throw new Error('ข้อมูลมีขนาดใหญ่เกินสำหรับบันทึกในเบราว์เซอร์');
       localStorage.setItem(STORAGE_KEY,value);
@@ -48,7 +49,7 @@ function loadSession(){
         error:typeof item.error==='string'?item.error:undefined,
         fingerprint:typeof item.fingerprint==='string'?item.fingerprint:undefined,
         enhanced:item.enhanced===true, hasMedia:item.hasMedia===true,
-        visualOverlap:item.visualOverlap===true,
+        visualOverlap:item.visualOverlap===true, reactionRows:Number.isFinite(item.reactionRows)?item.reactionRows:0,
         messages:Array.isArray(item.messages)?item.messages.slice(0,250):undefined,
         structuredValid:item.structuredValid===true
       });
@@ -104,7 +105,7 @@ function render() {
     const desc=document.createElement('div');
     const name=document.createElement('div'); name.className='review-name'; name.textContent=`${i+1}. ${s.source}`;
     const meta=document.createElement('div'); meta.className='review-meta';
-    meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence != null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% (ไม่ใช่ความแม่นยำ) · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;
+    meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence != null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% (ไม่ใช่ความแม่นยำ) · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.reactionRows?' · เมินรีแอค '+s.reactionRows+' แถว':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;
     desc.append(name,meta);
     const actions=document.createElement('div'); actions.className='mini-actions';
     for (const [symbol,label,fn,disabled] of [
@@ -116,7 +117,7 @@ function render() {
     }
     header.append(desc,actions);
     const editor=document.createElement('textarea');editor.value=s.text;editor.setAttribute('aria-label',`แก้ไขข้อความช่วงที่ ${i+1}`);editor.spellcheck=false;
-    editor.addEventListener('input',()=>{s.text=editor.value;s.structuredValid=false;s.messages=undefined;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;refreshStats();});
+    editor.addEventListener('input',()=>{s.text=editor.value;s.structuredValid=false;s.messages=undefined;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.reactionRows?' · เมินรีแอค '+s.reactionRows+' แถว':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;refreshStats();});
     item.append(header,editor);
     if(previews.has(s.id)){
       const previewBtn=document.createElement('button');previewBtn.className='text-button';previewBtn.type='button';previewBtn.textContent='ดูภาพต้นฉบับ';
@@ -228,6 +229,10 @@ async function readImageFile(file, previousFrame=null) {
       try{media=maskBottomPhoto(canvas);}
       catch(_err){/* Low-memory Safari: OCR as-is */}
     }
+    // Discord reaction chips are UI, not message text. Mask only well-matched
+    // adjacent pill rows on a disposable canvas; inline emojis stay intact.
+    let reactionRows=0;
+    try{reactionRows=maskReactionRows(canvas);}catch(_err){/* Conservative: leave unknown layouts unchanged. */}
     // Tesseract.js v6 only exposes positional line boxes if blocks output is requested.
     // Single OCR pass: no extra recognition, upload, or model download for structure.
     let result;
@@ -243,7 +248,7 @@ async function readImageFile(file, previousFrame=null) {
       structured=structureOCRLines(lines,{pixels,width:canvas.width,height:canvas.height});
     }
     const structuredValid=structured.headers>0 && structured.messages.length>0;
-    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media,visualOverlap:!!visualOverlap,frame,messages:structured.messages,structuredValid};
+    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media,visualOverlap:!!visualOverlap,reactionRows,frame,messages:structured.messages,structuredValid};
   } finally{URL.revokeObjectURL(url);}
 }
 
@@ -299,7 +304,7 @@ async function scanSelectedImages(){
         previousFrame=result.frame;
         if(result.visualOverlap)visualSkipped++;
         const target=existing||addSegment('',file.name,{kind:'image',fingerprint});
-         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;target.visualOverlap=result.visualOverlap;target.messages=result.messages;target.structuredValid=result.structuredValid;delete target.error;
+         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;target.visualOverlap=result.visualOverlap;target.reactionRows=result.reactionRows;target.messages=result.messages;target.structuredValid=result.structuredValid;delete target.error;
         if(previews.has(target.id))URL.revokeObjectURL(previews.get(target.id));
         previews.set(target.id,URL.createObjectURL(file));
         if(existing)skipped++;
@@ -335,6 +340,7 @@ $('start-video').addEventListener('click',async()=>{
         const crop=discordCropRect(canvas.width,canvas.height,$('auto-crop').checked);
         let area=canvas;
         if(crop.cropped){area=reducedCanvas(crop.width,crop.height,1600);area.getContext('2d').drawImage(canvas,crop.x,crop.y,crop.width,crop.height,0,0,area.width,area.height);}
+        try{maskReactionRows(area);}catch(_err){/* Unknown layout or memory pressure: leave source untouched. */}
         const result=await worker.recognize(area);
         addSegment(result.data.text,file.name,{kind:'video',second,confidence:result.data.confidence});successes++;
       }catch(err){addSegment('',`${file.name} (เฟรมผิดพลาด)`,{kind:'video',second,error:err.message});}
