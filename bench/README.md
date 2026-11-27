@@ -45,3 +45,10 @@ No cloud OCR endpoint, no Discord user token or unauthorized scraping, no hostin
 Visit [`/ChatLens/bench/openthai.html`](openthai.html). Select one locally held screenshot, let Tesseract identify line boxes, choose one line, then click the OpenThai ONNX button. The experiment uses the original version-pinned `rec.onnx` and `rec_dict.txt`, and ONNX Runtime Web on `wasm` (1 thread). The user can toggle BGR/RGB and dark-text inversion as isolated diagnostic settings. If model loading, browser CORS or ONNX inference fails, an error is shown; there is **no silent fallback**. Use the exact same line as hand-verified ground truth if measuring grapheme CER.
 
 **Important:** This is NOT a faithful port of OpenThai Text: there is no OpenThai detector, `rec2.onnx`, confidence-driven re-reads, script fixes, or faithful Python normalization. Tesseract's bounding boxes establish a fair crop for a recognizer-only probe, not a full OCR benchmark. Never use poor results as proof the official OpenThai pipeline is worse, and never claim that this test is validated on iPhone before a real Safari run. Code and models download from CDNs; screenshot pixels and text stay local.
+
+
+## Phase B.1 — Safari ONNX runtime loader diagnostic (2026-11-27)
+
+A real iPhone Safari test recognized 23 line boxes with Tesseract, but the optional OpenThai proof failed at runtime JS loading with an opaque module import failure. The loader now tries a **WASM-only classic-script** bundle from pinned jsDelivr first, then a CDNJS fallback, and only then a WASM ESM variant. This is a **hypothesis-driven compatibility fix**, not evidence that OpenThai ONNX inference now works.
+
+A dedicated diagnostic copy button returns only failure stage, pinned runtime version, source attempts and broad error class. It intentionally never copies images, filenames, OCR text, usernames or an unrestricted exception message. On iPhone, test the same screenshot and report the copied diagnostic if inference still fails; the model may then reveal a separate ONNX/CORS/WASM incompatibility. The main ChatLens app is unaffected.
