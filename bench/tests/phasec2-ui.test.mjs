@@ -5,12 +5,12 @@ const html=readFileSync(new URL('../batch.html',import.meta.url),'utf8');
 const js=readFileSync(new URL('../batch.js',import.meta.url),'utf8');
 
 test('Phase C.2 has opt-out geometry plus a review panel for skipped lines',()=>{
- assert.match(html,/Phase C\.3/);
+ assert.match(html,/Phase D\.0/);
  assert.match(html,/id="layout-focus"/);
  assert.match(html,/id="review-panel"/);
  assert.match(html,/id="review-lines"/);
  assert.match(html,/id="review"/);
- assert.match(html,/batch\.js\?build=phasec3-20261127/);
+ assert.match(html,/batch\.js\?build=phase-d0-20261127/);
 });
 test('all DOM element IDs used by C.2 code exist in HTML',()=>{
  const ids=[...js.matchAll(/\$\('([\w-]+)'\)/g)].map(m=>m[1]);
@@ -36,4 +36,14 @@ test('Phase C.3 distinguishes image-only and mixed regions and allows optional r
  assert.match(js,/extendTextRight\(/);
  assert.match(js,/imagePixels=null/);
  assert.match(js,/line\.kind==='graphic'/);
+});
+
+
+test('Phase D transcript preview and reversible character-color masking',()=>{
+ assert.match(html,/id="text-only"/);
+ assert.match(html,/id="transcript-panel"/);
+ assert.match(html,/id="copy-transcript"/);
+ assert.match(js,/maskNonTextColors\(/);
+ assert.match(js,/assembleTextTranscript\(/);
+ assert.match(js,/formatTextTranscript\(/);
 });
