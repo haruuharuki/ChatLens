@@ -35,3 +35,4 @@ jobs:
           node --check bench/region-audit.mjs
           node --check bench/text-color-mask.mjs
           node --check bench/text-transcript.mjs
+          node --check bench/header-layout.mjs

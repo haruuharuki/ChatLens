@@ -1,0 +1,68 @@
+/**
+ * Phase D.1: Independent *geometric* candidate headers for Discord dark mobile.
+ * Color is a layout clue, NOT OCR. We still need a verified timestamp and OCR
+ * before assigning an author. Never modifies the original screenshot pixels.
+ */
+const sat = (r,g,b) => (g>=112 && g>r*1.18 && g>b*1.07) ||
+  (b>=132 && b>r*1.08 && b>g*1.07);
+const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
+/** Locate name-colored horizontal bands where normal message headers begin.
+ * Reject small colorful icons, narrow emojis, and reply previews indented more
+ * than a normal author name. Return candidate geometry, NOT accepted names.
+ */
+export function discoverHeaderBands(pixels,width,height){
+ if(!pixels||pixels.length!==width*height*4||width<240||height<150)return [];
+ const left=Math.round(width*.07),right=Math.round(width*.86),counts=new Uint16Array(height);
+ const rowMin=new Int32Array(height).fill(width),rowMax=new Int32Array(height).fill(-1);
+ for(let y=0;y<height;y++)for(let x=left;x<right;x+=2){
+  const i=(y*width+x)*4;
+  if(!sat(pixels[i],pixels[i+1],pixels[i+2]))continue;
+  counts[y]++;rowMin[y]=Math.min(rowMin[y],x);rowMax[y]=Math.max(rowMax[y],x);
+ }
+ const bands=[];let start=-1,last=-1;
+ function flush(){
+  if(start<0)return;
+  const tall=last-start+1;let min=width,max=-1,ink=0;
+  for(let y=start;y<=last;y++){min=Math.min(min,rowMin[y]);max=Math.max(max,rowMax[y]);ink+=counts[y];}
+  const span=max-min;
+  // The normal author column begins near the left after the profile avatar.
+  // An indented mention/reply is not a standalone speaker header.
+  if(tall>=12&&tall<=85&&min<=width*.135&&span>=width*.105&&ink>=70){
+   bands.push({y0:clamp(start-6,0,height),y1:clamp(last+7,0,height),
+    x0:clamp(min-10,0,width),x1:clamp(Math.round(width*.98),0,width),
+    nameStart:min,nameEnd:max,ink});
+  }
+  start=-1;last=-1;
+ }
+ for(let y=0;y<height;y++){
+  if(counts[y]>=8){if(start<0)start=y;last=y;}
+  else if(start>=0&&y-last>8)flush();
+ }
+ flush();
+ return bands;
+}
+
+/** Partition Tesseract boxes against an independently found header row.
+ * A combined header+body Tesseract box is split geometrically so its lower
+ * content is not reinterpreted as a second author's name. Pure transformation.
+ */
+export function splitBoxesAtHeaders(lines,bands,width){
+ if(!Array.isArray(lines)||!bands?.length)return {lines:lines||[],split:0,covered:0};
+ const out=[];let split=0,covered=0;
+ for(const line of lines){
+  if(line.kind==='graphic'){out.push(line);continue;}
+  const b=line.bbox;
+  const hit=bands.find(h=>Math.min(h.y1,b.y1)-Math.max(h.y0,b.y0)>=Math.min(12,(b.y1-b.y0)*.35)
+    &&b.x0<width*.91);
+  if(!hit){out.push(line);continue;}
+  const lower=Math.round(hit.y1+4);
+  if(b.y1-lower>=17 && b.y1-b.y0<=170){
+   // Lower band must start under the colored name row. We deliberately do not
+   // reuse mixed OCR: it contains a header, so caller must re-read this crop.
+   out.push({...line,kind:'body',bbox:{x0:Math.max(b.x0,Math.round(width*.075)),y0:lower,
+     x1:b.x1,y1:b.y1},text:'',needsBodyRead:true,reason:'แยกข้อความใต้แถวชื่อด้วยตำแหน่งภาพ'});
+   split++;
+  }else{out.push({...line,kind:'covered',reason:'อ่านแถวชื่อแยกต่างหาก'});covered++;}
+ }
+ return {lines:out,split,covered};
+}

@@ -20,7 +20,7 @@ export function chooseBatchLines(lines,mode='sample12',max=MAX_BATCH_LINES){
  });
  // 'All' means all text candidates; photo/avatar regions stay reviewable but
  // are never sent to recognizers by default. Users can tick one explicitly.
- const candidates=mode==='all' ? valid.filter(({line})=>line.kind!=='graphic') : body;
+ const candidates=mode==='all' ? valid.filter(({line})=>!['graphic','covered','date'].includes(line.kind)) : body;
  if(!['sample12','bodyall','all'].includes(mode))throw new Error('Unknown batch selection mode');
  const cap=Math.max(1,Math.min(MAX_BATCH_LINES,Math.floor(Number(max)||MAX_BATCH_LINES)));
  if(mode==='sample12'){

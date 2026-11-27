@@ -15,7 +15,7 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
 </head>
 <body><main>
 <p><a href="./">← OCR Benchmark</a> · <a href="openthai.html">ทดสอบทีละบรรทัด</a> · <a href="../">ChatLens หลัก</a></p>
-<h1>🔬 Phase D.0 — Text-only Transcript Proof (experimental)</h1>
+<h1>🔬 Phase D.1 — Text-only Transcript Proof (experimental)</h1>
 <p>เลือกภาพ Discord ใบเดียว แล้วเปรียบเทียบ <b>Tesseract</b> กับ <b>OpenThai 2.1 ONNX</b> หลายบรรทัด โดยโหลดโมเดล OpenThai ครั้งเดียว ระบบตรวจภาพล้วนและกรอบชื่อ+เนื้อหาที่ปนกันก่อนส่งให้ OCR โดยยังให้ทบทวนทุกกรอบได้ ร่างบทสนทนาแยกวันที่ ผู้พูด เวลา พร้อมให้แก้ไขได้; โหมด 12 บรรทัดจะข้ามหัวข้อความและ Reply ที่ตรวจพบแบบระมัดระวัง แต่ทุกกรอบยังอยู่ให้ตรวจและเลือกกลับได้ ระบบไฮไลต์ข้อความที่ต่างกัน แต่<b>ไม่ได้ตัดสินว่าตัวไหนถูก</b> จนกว่าจะกรอกข้อความเฉลย</p>
 <div class="card">
  <h2>1. เลือกภาพและเริ่มทดลอง</h2>
@@ -37,7 +37,7 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
 <details id="review-panel" class="card" hidden><summary id="review-summary" style="font-weight:700;cursor:pointer">ยังไม่ได้ตรวจบรรทัด</summary><p class="help">กรอบภาพล้วนจะไม่ถูกส่งให้ OCR อัตโนมัติ แต่ยังตรวจดูและติ๊กเองได้ ไม่มีกรอบไหนถูกลบจากภาพต้นฉบับ ติ๊กเพื่อเพิ่มข้อความสั้น ชื่อผู้ใช้ หรือ Reply ที่ตัวจำแนกข้ามไว้ได้สูงสุด 60 บรรทัด การเลือกเพิ่มใช้ทดสอบเท่านั้น ไม่เปลี่ยนข้อความต้นฉบับ</p><div id="review-lines" class="review-list"></div></details>
 <section class="card" id="transcript-panel" hidden>
  <h2>2. ร่างบทสนทนาตามผู้พูดและเวลา (ทดลอง)</h2>
- <p class="help">แยกวันที่และชื่อผู้พูดจากกรอบข้อความที่ตรวจพบ; ใช้ OpenThai เมื่ออ่านเนื้อหาได้ และข้ามกรอบที่สงสัยเป็นรูปภาพโดยไม่สร้างข้อความจากรูป ถ้าไม่มีหลักฐานจะใช้ [ไม่ทราบผู้พูด] หรือ [ไม่ทราบวันที่] — กรุณาตรวจเทียบภาพก่อนคัดลอก</p>
+ <p class="help">ใช้แถบสีชื่อผู้พูดช่วยแยกแถวชื่อและเวลาออกจากกรอบ Tesseract ก่อนอ่านซ้ำ; ใช้ OpenThai เมื่ออ่านเนื้อหาได้ และข้ามกรอบที่สงสัยเป็นรูปภาพโดยไม่สร้างข้อความจากรูป ถ้าไม่มีหลักฐานจะใช้ [ไม่ทราบผู้พูด] หรือ [ไม่ทราบวันที่] — กรุณาตรวจเทียบภาพก่อนคัดลอก</p>
  <textarea id="transcript-text" rows="16" spellcheck="false" aria-label="ร่างบทสนทนาที่แก้ไขได้"></textarea>
  <p class="help" id="transcript-warning"></p>
  <button id="copy-transcript" type="button">📋 คัดลอกแชทตามแพตเทิร์น</button>
@@ -53,4 +53,4 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
  <details id="technical-results" class="card"><summary style="cursor:pointer;font-weight:700">🔎 ดูกรอบ OCR รายบรรทัด (สำหรับตรวจข้อผิดพลาด)</summary><div id="results" class="results" aria-live="off"></div></details>
 <div id="fallback" class="card" hidden><label for="fallback-text">เลือกคัดลอกข้อความนี้ด้วยตนเอง</label><textarea id="fallback-text" rows="10"></textarea></div>
 <div class="card"><h2>ขอบเขตของการทดลอง</h2><p>คำว่า "กรอบ" ในหน้านี้ไม่ใช่จำนวนข้อความ Discord จริง เพราะ Tesseract อาจตรวจพบรูปภาพ/โปรไฟล์เป็นกรอบ OCR ด้วย ตัวทดลองนี้ยังไม่ใช่ตัวแยกโครงสร้าง Discord เต็มระบบ และอาจพลาดข้อความที่ Tesseract ไม่ตรวจพบเลย ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></div>
-</main><script type="module" src="./batch.js?build=phase-d0-20261127"></script></body></html>
+</main><script type="module" src="./batch.js?build=phase-d1-20261127"></script></body></html>

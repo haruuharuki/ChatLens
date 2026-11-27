@@ -25,7 +25,7 @@ function parseHeader(text,kind){
  const prefix=s.slice(0,match.index).replace(/^(?:[•.,"'\\]+|(?:pi|DP|BD)\s+|\d[%)]\s*)+/i,'').trim();
  // Reject a long sentence with a casual timestamp, and single letter junk.
  if(prefix.length<2||prefix.length>100||!/[\p{L}]/u.test(prefix)||prefix.split(/\s+/).length>12)return null;
- const speaker=prefix.replace(/\s*\[(?:TTO|DAV|APP|MEOW)\]\s*$/i,'').trim();
+ const speaker=prefix.replace(/\s*(?:\[(?:TTO|DAV|APP|MEOW)\]|(?:TTO|DAV|APP|MEOW))\s*$/i,'').trim();
  return {speaker:speaker||prefix,time:match[0].replace(/\s*(AM|PM)$/i,(_,ap)=>' '+ap.toUpperCase()).replace('.',':'),tail:s.slice(match.index+match[0].length).trim()};
 }
 function substantive(t){const s=scrub(t);return !!s&&s.length<=1200&&!EMPTY_ART.test(s)&&(/[\p{L}\p{N}]/u.test(s));}
@@ -56,6 +56,7 @@ export function assembleTextTranscript(rows=[]){
  for(const r of ordered){
    const kind=r.kind||'fragment';const raw=scrub(r.originalText??r.text??r.rawBaseline??r.baseline);
    if(kind==='graphic'){graphics++;continue;}
+	   if(kind==='covered')continue; // original overlapping OCR header; targeted header replaces it
    if(!raw && !r.candidate && !r.truth)continue;
    const parsedDate=dateFromOCR(raw);
    if(parsedDate && (/^(?:\w+\s+\d+,?\s+20\d\d|\d+\/\d+\/\d+)/.test(raw)) && raw.length<45){
