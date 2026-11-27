@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#141923">
+  <title>ChatLens — OCR Benchmark (Experimental)</title>
+  <style>
+    :root{color-scheme:dark; font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif; background:#12151e;color:#eff0f8}
+    body{margin:0}main{max-width:850px;margin:auto;padding:24px 16px 80px}
+    a{color:#bcb0ff}h1{font-size:1.5rem;margin:.4rem 0}p{line-height:1.6;color:#c8cada}
+    .card{border:1px solid #3a3b51;border-radius:16px;padding:18px;margin-top:16px;background:#1d2130}
+    label{display:block;margin:12px 0 8px;font-weight:600}
+    input[type=file],textarea{display:block;box-sizing:border-box;width:100%;padding:12px;color:#eef;background:#111726;border:1px solid #565a76;border-radius:10px;font:inherit}
+    textarea{min-height:140px;resize:vertical;line-height:1.65}button{border:0;border-radius:10px;padding:12px 18px;background:#a99cfb;color:#14111b;font:inherit;font-weight:700;cursor:pointer;margin:4px 4px 4px 0}
+    button:disabled{opacity:.5;cursor:not-allowed}.secondary{background:#353c55;color:#f1f1f8}.small{font-size:.9rem}
+    .check{display:flex;align-items:flex-start;gap:8px;font-weight:400}.check input{margin-top:7px}
+    .hint{font-size:.9rem;color:#acb1c7}.result{white-space:pre-wrap;overflow-wrap:anywhere;background:#111726;border:1px solid #444a60;border-radius:12px;padding:14px;font-family:ui-monospace,monospace;line-height:1.55}
+    strong{color:#fff}#progress{min-height:1.5em;color:#c1b9ff}
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="../">← กลับ ChatLens</a></p>
+  <h1>🔬 ChatLens OCR Benchmark</h1>
+  <p>ห้องทดลองแยกจากแอปจริง ใช้ตรวจว่า Tesseract ไทย–อังกฤษอ่านภาพได้ดีแค่ไหน และปรับค่าอ่านแล้วดีขึ้นหรือไม่ <strong>ยังไม่ใช่การทดสอบ OCR Engine ใหม่</strong></p>
+  <div class="card">
+    <strong>ข้อมูลส่วนตัวอยู่บนอุปกรณ์</strong>
+    <p class="small">ภาพและข้อความเฉลยไม่ถูกอัปโหลดหรือบันทึกใน localStorage ห้องทดลองโหลดโค้ด OCR จาก CDN เท่านั้น หลีกเลี่ยงการแชร์ผลลัพธ์ที่มีข้อความส่วนตัวโดยไม่ได้รับอนุญาต</p>
+    <label for="picture">1. เลือกรูป Discord (ภาพเดียว)</label>
+    <input id="picture" type="file" accept="image/*">
+    <label for="truth">2. ข้อความที่อ่านด้วยตาจากภาพ (ถ้ามี)</label>
+    <textarea id="truth" spellcheck="false" placeholder="ไม่จำเป็นต้องกรอกก็ทดลอง OCR ได้ หากมีข้อความเฉลย ให้วางข้อความที่ตรงกับบริเวณที่ต้องการวัดทั้งภาพ"></textarea>
+    <p class="hint">คะแนน CER จะคำนวณได้ก็ต่อเมื่อข้อความเฉลยและข้อความ OCR ครอบคลุมพื้นที่เดียวกัน ห้ามนำคะแนนของข้อความคนละช่วงไปเทียบตรง ๆ</p>
+    <label class="check"><input id="crop" type="checkbox" checked> ใช้ Auto Crop Discord เหมือนหน้าเว็บจริง</label>
+    <label class="check"><input id="psm6" type="checkbox"> ทดลอง PSM 6 เพิ่มอีกหนึ่งรอบ (Tesseract ตัวเดิม ไม่ใช่ Engine ใหม่)</label>
+    <button id="run" type="button">เริ่มวัด OCR</button>
+    <p id="progress" role="status" aria-live="polite"></p>
+  </div>
+  <div class="card" id="out" hidden>
+    <h2 style="font-size:1.2rem">ผลการทดลอง</h2>
+    <div id="report" class="result"></div>
+    <button id="copy-summary" class="secondary" type="button">คัดลอกสรุปคะแนน</button>
+    <label for="recognized">OCR ดิบจากการทดลอง (ตรวจเทียบได้)</label>
+    <textarea id="recognized" readonly spellcheck="false"></textarea>
+    <p class="hint">คัดลอกผล OCR ดิบจากช่องนี้ได้ตามต้องการ แต่แนะนำให้ตรวจคำสำคัญกับภาพก่อนนำไปใช้</p>
+  </div>
+</main>
+<script type="module" src="./bench.js"></script>
+</body>
+</html>

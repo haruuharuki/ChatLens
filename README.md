@@ -26,6 +26,10 @@
 - **Video to Chat** ยังเป็นโหมดทดลอง 48 เฟรมสูงสุด/ครั้ง โดยไฟล์ MOV/HEVC บางแบบอ่านไม่ได้บนมือถือ
 - ควรเคารพกฎของคอมมูและสิทธิส่วนบุคคลของสมาชิก อย่าใส่ภาพแชทจริงลง Repository สาธารณะ
 
+## OCR accuracy measurement (research — production untouched)
+
+A separate local-only benchmark is available at [`/bench/`](bench/). It scores **grapheme CER** using hand-verified reference text, not OCR confidence. It can compare current Tesseract `tha+eng` against a Tesseract PSM 6 setting, but **neither run is an alternative OCR engine**. See [`bench/README.md`](bench/README.md) and [`bench/BENCHMARK_PLAN.md`](bench/BENCHMARK_PLAN.md) for candidate engines and privacy-safe validation. The user's sample screenshots and chat transcripts are **not in this repo**.
+
 ## Source and development
 
 - `index.html`, `styles.css` — mobile-first UI + output-first copy
