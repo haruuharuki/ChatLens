@@ -1,6 +1,6 @@
 # ChatLens — Discord screenshot-to-text (Mobile first)
 
-> v0.3 · Static web app · https://haruuharuki.github.io/ChatLens/
+> v0.3.1 · Static web app · https://haruuharuki.github.io/ChatLens/
 
 **เป้าหมาย:** เลือกภาพแคป Discord หลายภาพบนมือถือ → อ่านข้อความ → คัดลอกไปวางใน ChatGPT โดยไม่ต้องครอปเอง
 
@@ -77,3 +77,14 @@ Four user supplied iPhone Discord screenshots (IMG_6768–6771) showed two separ
 - Editing the raw OCR invalidates the old structured parse, preventing silently stale output. Re-import images to re-run structure extraction.
 - Per-image entries are stored in browser-local text storage alongside the original OCR string; image bytes stay ephemeral in device memory. Existing sessions are restored in raw fallback.
 - This is **not model training** or guaranteed Thai OCR accuracy, and does not fetch actual Discord messages. A local browser smoke test was blocked by environment network policy. Manual iPhone Safari validation remains necessary before claiming production readiness.
+
+## v0.3.1 — Discord reply preview above a message (experimental)
+
+Discord mobile renders a reply as a short, muted **preview above the replying sender's header**, often preceded by a small profile picture and hooked line on the left. A preview can wrap across two or more lines. It is **not** an independent chat message.
+
+- The structured OCR parser now groups up to 4 contiguous reply-preview lines **only when** a leading `@handle` (or an explicit reply marker), screenshot line geometry, and the immediately following speaker+time header agree.
+- Output puts `> ตอบกลับ: [ผู้ใช้ต้นทาง] — ข้อความที่อ้างถึง…` *before* `[ผู้ตอบ] — เวลา` and the new reply body. This is a best-effort rendering, not a message fetched from Discord.
+- Plain `@mentions` inside ordinary messages are not classified as replies merely because an `@` appears. Low-confidence/partial previews remain in the text and uncertain authors are not invented. Complex mentions are kept verbatim rather than guessing an author.
+- The detection uses text-line position and indentation. It does **not** recognize the bent reply-connector line directly, and can miss replies if OCR mangles the `@` symbol or screenshots cut off part of the preview.
+- Raw OCR switch, copy/export, local-only storage and privacy remain unchanged. No real user screenshots or community chat content are committed to the public repo.
+- Tests use only synthetic examples based on the geometry of a private uploaded screenshot. iPhone Safari and real Thai OCR quality remain manual acceptance checks.

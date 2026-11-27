@@ -19,7 +19,7 @@ test('parse plausible Discord speaker headers with timestamps',()=>{
 });
 
 test('speaker/message/reply groups are coherent; unfamiliar unheaded content survives',()=>{
- const lines=[line('ข้อความที่ยังไม่รู้ผู้พูด',10),line('Multiple 1:55 PM',45),line('แม่งไม่ขมเลย',80),line('เฉลยว่าเพื่อนเป็นคนตอบ',110),line('@Multiple เคยพูดเรื่องนี้',150),line('[Staff] เจี๊ย 1:56 PM',180),line('จำได้แล้ว',210)];
+ const lines=[line('ข้อความที่ยังไม่รู้ผู้พูด',10),line('Multiple 1:55 PM',45),line('แม่งไม่ขมเลย',80),line('เฉลยว่าเพื่อนเป็นคนตอบ',110),line('@Multiple เคยพูดเรื่องนี้',150,81),line('[Staff] เจี๊ย 1:56 PM',180),line('จำได้แล้ว',210)];
  const r=structureOCRLines(lines);
  assert.equal(r.headers,2);
  assert.equal(r.unknown,1);
@@ -55,7 +55,7 @@ test('structured output is copy-ready but raw remains fallback and no text is in
  const out=formatStructuredSegments(data);
  assert.match(out.text,/\[Multiple\] — 1:55 PM\nสวัสดี/);
  assert.match(out.text,/\[ไม่สามารถระบุผู้พูดจากภาพ IMG_011.png\]\nอ่านไม่ชัดครับ/);
- assert.match(out.text,/↳ ตอบกลับ: @Multiple ทักมา/);
+ assert.match(out.text,/> ตอบกลับ: @Multiple ทักมา/);
  assert.match(out.text,/ภาพแนบในแชท/);
  assert.equal(out.structuredCount,2);
  assert.equal(out.unknownCount,1);
@@ -79,4 +79,70 @@ test('colored but garbled header time creates UNKNOWN boundary instead of misatt
  assert.equal(r.messages[0].speaker,'Multiple');
  assert.equal(r.messages[1].speaker,null);
  assert.match(r.messages[1].body,/เริ่มไม่ฟิน/);
+});
+
+// Synthetic reply layout inspired by a private screenshot; no private text assets.
+test('wrapped Discord reply preview is emitted before its replying message header',()=>{
+  const lines=[
+    line('@Tester วันนี้จะช่วยกันทดลองสูตรอาหาร',30,102),
+    line('ขั้นแรก • เตรียมอุปกรณ์...',57,57),
+    line('[12] ผู้เล่นทดสอบ | Demo DAV 1:53 PM',94,58),
+    line('รับทราบ เดี๋ยวเตรียมของก่อน',125,58),
+    line('Tester 1:55 PM',182,58),
+    line('โอเค ขอบคุณนะ',216,58)
+  ];
+  const r=structureOCRLines(lines);
+  assert.equal(r.headers,2);
+  assert.equal(r.unknown,0);
+  assert.deepEqual(r.messages.map(m=>m.speaker),['[12] ผู้เล่นทดสอบ | Demo DAV','Tester']);
+  assert.equal(r.messages[0].reply?.author,'Tester');
+  assert.equal(r.messages[0].reply?.excerpt,'วันนี้จะช่วยกันทดลองสูตรอาหาร ขั้นแรก • เตรียมอุปกรณ์...');
+  assert.equal(r.messages[0].body,'รับทราบ เดี๋ยวเตรียมของก่อน');
+  const text=formatStructuredSegments([{structuredValid:true,messages:r.messages}]).text;
+  assert.match(text,/> ตอบกลับ: \[Tester\] — วันนี้จะช่วยกันทดลองสูตรอาหาร ขั้นแรก/);
+  assert.ok(text.indexOf('> ตอบกลับ:') < text.indexOf('[[12] ผู้เล่นทดสอบ'));
+  assert.equal((text.match(/ขั้นแรก/g)||[]).length,1);
+});
+
+test('ordinary @mention in body is not treated as a Discord reply preview',()=>{
+  const r=structureOCRLines([
+    line('Tester 1:52 PM',10,55),
+    line('ขอพูดหน่อย',46,55),
+    line('@Tester ทักมานะ',82,55),
+    line('[Staff] เจี๊ย 1:53 PM',116,55),
+    line('ได้จ้า',150,55)
+  ]);
+  assert.equal(r.messages.length,2);
+  assert.equal(r.messages[0].body,'ขอพูดหน่อย\n@Tester ทักมานะ');
+  assert.equal(r.messages[1].replyTo,null);
+});
+
+test('reply preview without a following author header stays visible and unassigned',()=>{
+  const r=structureOCRLines([line('@Tester อ้างอิงข้อความ',15,86),line('บรรทัดต่อไป',49,55)]);
+  assert.equal(r.messages.length,1);
+  assert.equal(r.messages[0].speaker,null);
+  assert.equal(r.messages[0].body,'@Tester อ้างอิงข้อความ\nบรรทัดต่อไป');
+});
+
+test('complex or unreadable reply handle keeps original quote without inventing user',()=>{
+  const r=structureOCRLines([
+    line('@[04] ชื่อไม่แน่ชัด กำลังคุยอยู่',12,91),
+    line('[Staff] ก 1:54 PM',50,56),
+    line('ตอบแล้ว',85,56)
+  ]);
+  assert.equal(r.messages.length,1);
+  assert.equal(r.messages[0].reply.author,null);
+  const formatted=formatStructuredSegments([{structuredValid:true,messages:r.messages}]).text;
+  assert.match(formatted,/> ตอบกลับ: @\[04\] ชื่อไม่แน่ชัด กำลังคุยอยู่/);
+});
+
+test('too distant quoted line is retained instead of falsely linked',()=>{
+  const r=structureOCRLines([
+    line('@Tester คุยเรื่องอื่น',20,100),
+    line('[Staff] ก 1:54 PM',250,60),
+    line('ตอบจ้า',285,60)
+  ]);
+  assert.equal(r.messages.length,2);
+  assert.equal(r.messages[0].speaker,null);
+  assert.equal(r.messages[1].replyTo,null);
 });
