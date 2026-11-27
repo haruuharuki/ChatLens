@@ -46,26 +46,8 @@ Visit [`/ChatLens/bench/openthai.html`](openthai.html). Select one locally held 
 
 **Important:** This is NOT a faithful port of OpenThai Text: there is no OpenThai detector, `rec2.onnx`, confidence-driven re-reads, script fixes, or faithful Python normalization. Tesseract's bounding boxes establish a fair crop for a recognizer-only probe, not a full OCR benchmark. Never use poor results as proof the official OpenThai pipeline is worse, and never claim that this test is validated on iPhone before a real Safari run. Code and models download from CDNs; screenshot pixels and text stay local.
 
+## Phase D.0 — Character-color filter and transcript preview (experimental)
 
-## Phase B.1 — Safari ONNX runtime loader diagnostic (2026-11-27)
+Open [batch.html](batch.html). The experimental flow can now produce an **editable transcript draft** in the form `[November 27, 2026]` followed by `[speaker] - time` and content, and copy it into ChatGPT without copying every benchmark card. The preview is available after image review (Tesseract-only) and updates with OpenThai line-recognition results. Manual exact text corrections have priority. Suspected photo-only regions are excluded, but still appear in review. Date/title and speaker/times derive from visible text only; if not verifiable, use `[ไม่ทราบวันที่]` and `[ไม่ทราบผู้พูด] - ไม่ทราบเวลา`. Reply previews stay quoted rather than inventing an author.
 
-A real iPhone Safari test recognized 23 line boxes with Tesseract, but the optional OpenThai proof failed at runtime JS loading with an opaque module import failure. The loader now tries a **WASM-only classic-script** bundle from pinned jsDelivr first, then a CDNJS fallback, and only then a WASM ESM variant. This is a **hypothesis-driven compatibility fix**, not evidence that OpenThai ONNX inference now works.
-
-A dedicated diagnostic copy button returns only failure stage, pinned runtime version, source attempts and broad error class. It intentionally never copies images, filenames, OCR text, usernames or an unrestricted exception message. On iPhone, test the same screenshot and report the copied diagnostic if inference still fails; the model may then reveal a separate ONNX/CORS/WASM incompatibility. The main ChatLens app is unaffected.
-
-
-## Phase B.2 — Safari cache-busting / version confirmation (2026-11-27)
-
-An iPhone screenshot showed new Phase B.1 HTML (the new diagnostic button) but **the OLD error-status string** `OpenThai ยังรันไม่ได้: Importing a module script failed.`. This status does not occur in the current Phase B.1 JavaScript. The most likely explanation is stale `openthai.js` cached independently of the updated HTML, although a different browser/cache state remains possible.
-
-The B.2 HTML loads `openthai.js?build=b2-20261127` to force a new module URL, and that entrypoint loads a cache-busted diagnostic helper. A visible build indicator must change from `JavaScript รุ่น B.2 ยังไม่เริ่มทำงาน` to `JavaScript รุ่น B.2-20261127 พร้อมทำงาน`. If it does not, the new script was not executed and no inference conclusion can be drawn. If it does, any remaining failures should be classified using the redacted diagnostic Copy button. The production scanner is unchanged.
-
-
-## Phase C.2 — conservative layout awareness and omission review
-
-See [PHASE_C2.md](PHASE_C2.md). The experimental batch UI can mask suspected left avatar remnants and dense right-edge sticker/emoji blocks, with visual before/after preview and a reversible option. Review **all Tesseract-detected lines** before benchmarking; missing short lines and reply previews remain recoverable from the review panel, but lines Tesseract never detected are still outside this experiment. Parenthesized image-descriptions are not used for literal-text CER. This is not full Discord layout parsing and does not modify the production chat exporter.
-
-
-## Phase C.3 — region audit and continuation proof
-
-See [PHASE_C3.md](PHASE_C3.md). The isolated `/bench/batch.html` experiment now estimates which Tesseract regions are photo/avatar-only, conservatively separates a colored username/time line from a distinct white body band in one box, and optionally extends a short detected region only when nearby text-colored pixels continue beyond its right edge. Full original and submitted OCR crops remain visible. Photo-like regions remain reviewable; automatic `all` sampling no longer sends likely nontext images to OCR. These are unvalidated geometric hypotheses, **not** a production full Discord detector or completeness guarantee. Literal text-only CER must align to the actual processed ROI; do not grade a mixed header/body reference against only a body crop.
+A reversible character-color mask keeps plausible white/gray/green/purple text pixels on *separate OCR crops*, suppressing unrelated color pixels. **It cannot perfectly separate text from images**: white stickers, captions inside images, colored graphics, missing OCR bounding boxes and clipped words remain possible. Always compare the input and processed crop, and disable text-only mask if Thai glyphs disappear. No screenshot/transcript is committed and no production `app.js` changed. All transcript messages and accuracy remain unverified on real iPhone Safari until device acceptance.

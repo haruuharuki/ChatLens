@@ -7,6 +7,8 @@ import {runtimeSources,diagnosticReport} from './runtime-loader.mjs';
 import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs';
 import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs';
+import {maskNonTextColors} from './text-color-mask.mjs';
+import {assembleTextTranscript,formatTextTranscript} from './text-transcript.mjs';
 
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
@@ -14,8 +16,9 @@ let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null
 let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
 let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
+let transcriptEdited=false;
 function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
@@ -99,6 +102,16 @@ async function loadOpenThai(){
  if(!onnx.inputNames?.length||!onnx.outputNames?.length)throw new Error('ONNX ไม่มีชื่อ input/output');
  modelLoadMs=Math.round(performance.now()-begin);
 }
+/** Experimental color-only mask, on disposable OCR crops; raw images are unchanged. */
+function maybeTextOnly(canvas,metadata){
+ if(!$('text-only').checked || metadata.graphic)return {canvas,...metadata};
+ const ctx=canvas.getContext('2d',{willReadFrequently:true});
+ const image=ctx.getImageData(0,0,canvas.width,canvas.height);
+ const filtered=maskNonTextColors(image.data,canvas.width,canvas.height);
+ image.data.set(filtered.pixels);ctx.putImageData(image,0,0);
+ return {canvas,...metadata,cleaned:true,textMask:true};
+}
+
 /** A single local line canvas is shared by BOTH engines in focused mode. */
 function preparedLineCanvas(line){
  const b=line.bbox,padX=4,padY=4;
@@ -114,7 +127,7 @@ function preparedLineCanvas(line){
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
  // For headers, image-only regions and ambiguous fragments, show RAW pixels;
  // don't pretend that the image-cleanup heuristics understand their meaning.
- if(!focus||!['body','mixed'].includes(line.kind))return {canvas:c,cleaned:false,layout:null,expansion:0,mixedBand:false};
+ if(!focus||!['body','mixed'].includes(line.kind))return maybeTextOnly(c,{cleaned:false,layout:null,expansion:0,mixedBand:false,graphic:line.kind==='graphic'});
  const rgba=ctx.getImageData(0,0,c.width,c.height);
  const layout=geometry?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:bodyTextAnchor}):null;
  const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:$('crop').checked});
@@ -123,9 +136,9 @@ function preparedLineCanvas(line){
  if(cleaned.band&&cleaned.band.bottom>cleaned.band.top){
   const out=document.createElement('canvas');out.width=c.width;out.height=cleaned.band.bottom-cleaned.band.top;
   out.getContext('2d').drawImage(c,0,cleaned.band.top,c.width,out.height,0,0,c.width,out.height);
-  return {canvas:out,...metadata};
+  return maybeTextOnly(out,metadata);
  }
- return {canvas:c,...metadata};
+ return maybeTextOnly(c,metadata);
 }
 
 function canvasTensor(c){
@@ -166,6 +179,7 @@ function buildRow(item){
  info.textContent=`ประเภทโดยประมาณ: ${kinds[item.line.kind]||'ไม่ทราบ'} — ${item.line.reason||'ยังไม่ยืนยัน'}`;
   if(item.prepared.mixedBand)info.textContent+=' · ส่งเฉพาะแถบเนื้อหาสีขาวเข้า OCR (ภาพชื่อ/เวลาอยู่ในต้นฉบับ)';
   if(item.prepared.expansion)info.textContent+=` · ขยายกรอบด้านขวา +${item.prepared.expansion}px (ทดลอง)`;
+   if(item.prepared.textMask)info.textContent+=' · ใช้หน้ากากสีตัวอักษร (ทดลอง; อาจปิดสีตัวอักษรผิดได้)';
   if(item.line.kind==='graphic')info.textContent+=' · รูปภาพไม่ใช่ข้อความแชทตามปกติ หากตั้งใจทดสอบให้เลือกด้วยตนเอง';
   if(item.prepared.layout){
   const l=item.prepared.layout;
@@ -182,7 +196,7 @@ function buildRow(item){
  left.append(leftLabel,baseline);right.append(rightLabel,candidate);pair.append(left,right);
  const truthWrap=document.createElement('div');truthWrap.className='truth';const label=document.createElement('label');label.textContent='ข้อความเฉลยจากภาพ (ไม่บังคับ)';label.htmlFor='truth-'+item.index;
  const input=document.createElement('textarea');input.id=label.htmlFor;input.rows=2;input.placeholder='พิมพ์เฉพาะข้อความจริงในบรรทัดนี้เพื่อวัด CER';input.spellcheck=false;
- const score=document.createElement('div');score.className='score';input.addEventListener('input',()=>{item.truth=input.value;refreshAccuracy();});truthWrap.append(label,input,score);
+ const score=document.createElement('div');score.className='score';input.addEventListener('input',()=>{item.truth=input.value;refreshAccuracy();refreshTranscript();});truthWrap.append(label,input,score);
  outer.append(header,info,preview,cleanedLabel,preparedPreview,pair,truthWrap);
  item.dom={badge,baseline,candidate,score};return outer;
 }
@@ -205,6 +219,27 @@ function refreshAccuracy(){
  const a=evaluateAlignedSamples(matched.map(x=>({id:x.index,reference:x.truth,recognized:x.baseline}))).summary;
  const b=evaluateAlignedSamples(matched.map(x=>({id:x.index,reference:x.truth,recognized:x.candidate}))).summary;
  acc.textContent=`เฉพาะ ${matched.length} บรรทัดที่มีเฉลยและ OpenThai อ่านสำเร็จ: CER ไม่คิดช่องว่าง — Tesseract ${(a.compactCer*100).toFixed(1)}% · OpenThai ${(b.compactCer*100).toFixed(1)}% (น้อยกว่าดีกว่า)`;
+}
+function refreshTranscript(force=false){
+ if(!ocrLines.length){$('transcript-panel').hidden=true;return;}
+ if(transcriptEdited&&!force)return;
+ const byIndex=new Map(items.map(item=>[item.index,item]));
+ const rows=ocrLines.map((line,index)=>{
+  const item=byIndex.get(index);
+  return {...line,originalText:line.text,
+   baseline:item?.baseline??line.text,
+   candidate:item?.candidate??null,
+   error:Boolean(item?.error),truth:item?.truth??''};
+ });
+ const result=assembleTextTranscript(rows);
+ $('transcript-text').value=formatTextTranscript(result);
+ $('transcript-warning').textContent=[
+  'เป็นร่างจากภาพเท่านั้น: OCR อาจอ่านชื่อ เวลา และเนื้อหาผิด และยังไม่ยืนยันว่าเก็บครบทั้งภาพ',
+  ...result.warnings,
+  `ข้อความไม่ทราบผู้พูด ${result.unknownCount} ช่วง · รูปภาพที่สงสัย ${result.graphicCount} กรอบ`
+ ].join(' · ');
+ $('transcript-panel').hidden=false;
+ transcriptEdited=false;
 }
 function refreshStats(){
  const {done,identical,different,failures}=counts();const stats=$('stats');stats.replaceChildren(
@@ -268,7 +303,7 @@ async function reviewOnly(){
  if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
  toggleBusy(true);
  try{
-  await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('review-panel').open=true;
+  await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('review-panel').open=true;refreshTranscript(true);
   say(`ตรวจพบ ${ocrLines.length} กรอบ (ไม่ใช่จำนวนแชท) · เลือกไว้ ${reviewSelection.size} · เลือกข้อความสั้น/Reply เพิ่มได้ก่อนเริ่มเปรียบเทียบ`);
  }catch(err){say('ตรวจภาพไม่สำเร็จ: '+String(err?.message||'ไม่ทราบสาเหตุ'));}
  finally{toggleBusy(false);}
@@ -282,7 +317,7 @@ async function run(){
   if(!reviewReady){defaultReviewSelection();renderReview();}
   const selected=[...reviewSelection].sort((a,b)=>a-b).filter(i=>i>=0&&i<ocrLines.length).map(index=>({line:ocrLines[index],index}));
   if(!selected.length)throw new Error('ยังไม่ได้เลือกบรรทัดเลย เปิดหน้าทบทวนแล้วเลือกอย่างน้อย 1 บรรทัด');
-  items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
+  transcriptEdited=false;items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
   $('progress').max=items.length;$('report').hidden=false;
   for(const item of items){$('results').append(buildRow(item));}refreshStats();
   if(stopRequested){wasCancelled=true;return;}
@@ -316,8 +351,11 @@ $('start').addEventListener('click',run);
 $('review').addEventListener('click',reviewOnly);
 $('scope').addEventListener('change',()=>{if(reviewReady){defaultReviewSelection();renderReview();say('อัปเดตชุดตัวเลือกตามโหมดแล้ว · สามารถติ๊กเพิ่มหรือยกเลิกก่อนกดเริ่ม');}});
 $('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดหลังบรรทัดปัจจุบัน (ไม่สามารถตัด ONNX ระหว่าง inference ได้)');});
-$('photo').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
+$('photo').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
 $('crop').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
 $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
+$('transcript-text').addEventListener('input',()=>{transcriptEdited=true;});
+$('transcript-refresh').addEventListener('click',()=>{transcriptEdited=false;refreshTranscript(true);});
+$('copy-transcript').addEventListener('click',()=>copyOrShow($('transcript-text').value));
 window.addEventListener('pagehide',()=>{try{worker?.terminate();onnx?.release();}catch(_){}});
