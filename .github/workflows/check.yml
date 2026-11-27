@@ -12,7 +12,7 @@ jobs:
         with:
           node-version: '22'
       - name: Run unit tests
-        run: node --test tests/*.test.mjs
+        run: node --test tests/*.test.mjs bench/tests/*.test.mjs
       - name: Check JavaScript syntax
         run: |
           node --check app.js
@@ -24,3 +24,5 @@ jobs:
           node --check lib/visual-overlap.mjs
           node --check lib/discord-structure.mjs
           node --check lib/reaction-guard.mjs
+          node --check bench/bench.js
+          node --check bench/metrics.mjs
