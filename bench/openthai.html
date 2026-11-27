@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="th">
+<head>
+ <meta charset="utf-8">
+ <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+ <meta name="theme-color" content="#141923">
+ <title>ChatLens — OpenThai ONNX Proof (Phase B)</title>
+ <style>
+ :root{color-scheme:dark;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;background:#12151e;color:#eff0f8}
+ body{margin:0}main{max-width:760px;margin:auto;padding:18px 16px 80px}
+ a{color:#bcb0ff}h1{font-size:1.45rem;margin:.4rem 0}h2{font-size:1.05rem}p{line-height:1.6;color:#cad0df}
+ .card{border:1px solid #3a3b51;border-radius:16px;padding:16px;margin-top:14px;background:#1d2130}
+ label{display:block;margin:12px 0 8px;font-weight:600}input[type=file],input[type=text],textarea,select{box-sizing:border-box;display:block;width:100%;padding:11px;color:#eff;background:#111726;border:1px solid #565a76;border-radius:10px;font:inherit}
+ textarea{resize:vertical;min-height:100px;line-height:1.6}button{border:0;border-radius:10px;padding:12px 18px;background:#a99cfb;color:#171421;font:inherit;font-weight:700;margin:6px 0;cursor:pointer;width:100%}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:#353c55;color:#eee}
+ .check{display:flex;gap:8px;align-items:flex-start;font-weight:400}.check input{margin-top:7px}
+ .muted{font-size:.87rem;color:#aeb5ca}#progress{min-height:24px;font-size:.9rem;color:#c8beff;overflow-wrap:anywhere}
+ #view{width:100%;height:auto;background:#18181d;border-radius:8px;display:block;max-height:440px;object-fit:contain;object-position:top}
+ .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:420px){.two{grid-template-columns:1fr}}
+ .status{white-space:pre-wrap;overflow-wrap:anywhere;background:#111726;border:1px solid #424966;border-radius:12px;padding:12px}
+ </style>
+</head>
+<body><main>
+ <p><a href="./">← กลับ OCR Benchmark</a> · <a href="../">ChatLens ปกติ</a></p>
+ <h1>🧪 OpenThai 2.1 — ONNX Proof</h1>
+ <p><strong>Phase B แบบทดลอง:</strong> ให้ Tesseract ช่วยหาตำแหน่งบรรทัด แล้วให้ OpenThai อ่านเพียงหนึ่งบรรทัดเพื่อพิสูจน์ว่าโมเดล ONNX รันใน Safari ได้หรือไม่ <strong>ยังไม่ใช่การใช้ OpenThai เต็มระบบ</strong> และยังไม่เปลี่ยน ChatLens ปกติ</p>
+ <div class="card">
+  <h2>1. เลือกภาพ Discord 1 ภาพ</h2>
+  <input id="photo" type="file" accept="image/*">
+  <label class="check"><input id="crop" type="checkbox" checked> ใช้ Auto Crop แบบ ChatLens</label>
+  <button id="choose" type="button">ตรวจหาบรรทัดด้วย Tesseract</button>
+  <p class="muted">ภาพอยู่เฉพาะในเบราว์เซอร์ ไม่ส่งไป API OCR แต่จะดาวน์โหลดไฟล์โมเดล/โค้ดจาก CDN และ Hugging Face เมื่อทดลอง</p>
+ </div>
+ <div class="card">
+  <h2>2. เลือกบรรทัดที่อยากเทียบ</h2>
+  <select id="line" aria-label="บรรทัดที่ต้องการตรวจ"></select>
+  <p id="extract" class="muted">ยังไม่ได้เลือกภาพ</p>
+  <canvas id="view" aria-label="ภาพพร้อมกรอบบรรทัดที่เลือก"></canvas>
+  <label class="check"><input id="invert" type="checkbox" checked> กลับสีพื้นหลังมืดเป็นสว่างก่อนอ่าน (ทดลอง)</label>
+  <label for="channels">ลำดับช่องสีของโมเดล</label>
+  <select id="channels"><option value="bgr">BGR (ค่าเริ่มต้นของ Paddle)</option><option value="rgb">RGB (ทดสอบหาก BGR เพี้ยน)</option></select>
+  <button id="recognize" type="button" disabled>ทดลองอ่านบรรทัดนี้ด้วย OpenThai ONNX</button>
+  <p id="progress" role="status" aria-live="polite"></p>
+ </div>
+ <div class="card">
+  <h2>3. เปรียบเทียบข้อความ</h2>
+  <div class="two">
+   <div><label for="baseline">Tesseract (บรรทัดที่เลือก)</label><textarea id="baseline" readonly></textarea></div>
+   <div><label for="openthai">OpenThai (ถ้ารันสำเร็จ)</label><textarea id="openthai" readonly></textarea></div>
+  </div>
+  <label for="truth">ข้อความเฉลยจากภาพ (ไม่บังคับ)</label><textarea id="truth" placeholder="พิมพ์ข้อความที่ถูกต้องของบรรทัดที่เลือก ถ้าอยากวัดความแม่น"></textarea>
+  <p id="score" class="status" aria-live="polite">ยังไม่มีผล</p>
+  <button class="secondary" id="copy" type="button" disabled>คัดลอกผลทางเทคนิค (ไม่รวมข้อความแชท)</button>
+ </div>
+ <div class="card muted">
+  <strong>ขอบเขตและข้อจำกัด</strong>
+  <p>รุ่นนี้ใช้ OpenThai Text v2.1.4 เฉพาะ <code>rec.onnx</code> + พจนานุกรม ไม่ได้รัน <code>det.onnx</code>, <code>rec2.onnx</code> หรือระบบแก้ภาษาไทยใน Python แบบครบถ้วน ผลจึงอาจยังไม่ดี และไม่ควรนำคะแนนไปเทียบว่า OpenThai เต็มระบบด้อยหรือดีกว่า Tesseract ทั้งภาพ</p>
+  <p>หากโหลดโมเดลไม่สำเร็จเพราะ CORS, Safari memory หรือ WASM ระบบจะแสดงข้อผิดพลาด ไม่แอบกลับไปใช้ Tesseract แล้วเรียกว่า OpenThai</p>
+ </div>
+</main><script type="module" src="./openthai.js"></script></body></html>

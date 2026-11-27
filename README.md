@@ -99,3 +99,10 @@ Discord mobile renders a reply as a short, muted **preview above the replying se
 - Preserve emoji, Unicode symbols and mentions inside actual message text; preserve reply preview and original screenshot review. An isolated ambiguous pill is deliberately **not masked** to avoid deleting user content.
 - Current detector is limited to the observed dark Discord theme; different themes, screens and compressed formats might not match. No blanket removal of emoji or numbers.
 - Tests use synthetic pill layouts. Private sample screenshot bytes are tested only in local diagnostics, not committed. OCR accuracy on iPhone Safari requires hands-on validation.
+
+
+## Phase B — OpenThai 2.1 experimental ONNX line proof (2026-11-27)
+
+The isolated [bench/openthai.html](bench/openthai.html) page tests client-only ONNX Runtime Web with an official OpenThai Text v2.1.4 **single-line recognizer**. Tesseract still discovers text line bounding boxes; OpenThai is invoked only after the user explicitly selects a line. This is **not** the entire OpenThai runtime. It does not load the detector `det.onnx`, alternate `rec2.onnx`, or the Python Thai postprocessing steps. Comparing this against full-image Tesseract is not a model quality claim.
+
+The browser fetches official model artifacts directly from Hugging Face and ONNX runtime from jsDelivr; image pixels and transcriptions stay in browser memory. Model CORS, WASM op coverage and iPhone Safari resource use remain *unverified* until a real mobile test. The live `app.js` and index page remain unchanged.
