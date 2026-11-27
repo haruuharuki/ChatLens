@@ -32,3 +32,4 @@ jobs:
           node --check bench/batch.js
           node --check bench/batch-core.mjs
           node --check bench/line-guard.mjs
+          node --check bench/layout-guard.mjs
