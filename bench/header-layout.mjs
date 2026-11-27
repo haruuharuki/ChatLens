@@ -66,3 +66,24 @@ export function splitBoxesAtHeaders(lines,bands,width){
  }
  return {lines:out,split,covered};
 }
+
+/** Merge independently read username and clock without ever inferring a name
+ * or time. If isolated-name OCR is gibberish, preserve the full/header evidence.
+ * A badge (TTO/DAV/etc) may be between username and time.
+ */
+export function combineRecognizedHeader({full='',nameOnly='',nearby=''}={}){
+ const clock=/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i;
+ const fullTime=String(full).match(clock),nearTime=String(nearby).match(clock);
+ const time=(fullTime||nearTime)?.[0]||null;
+ const rawName=String(nameOnly).replace(clock,'').replace(/\s+/g,' ').trim();
+ // Do not drop leading digits from a name: some real Discord handles start
+ // with numbers. Cropping out avatar pixels is responsible for this cleanup.
+ const name=rawName.replace(/^[:.,\s]+/,'').trim();
+ const letterCount=Array.from(name).filter(c=>/[\p{L}]/u.test(c)).length;
+ const plausible=name.length>=2&&name.length<=90&&letterCount>=2&&
+   !/^[a-z]{1,2}\s+[a-z]{1,2}$/i.test(name)&&
+   !/\b(?:TTO|DAV|MEOW|APP)\b/i.test(name)&&
+   !(name.match(/[<>{}\^~@#$%]/g)||[]).length;
+ if(time&&plausible)return {text:`${name} ${time}`,usedNameOnly:true};
+ return {text:fullTime?String(full).trim():nearTime?String(nearby).trim():String(full).trim(),usedNameOnly:false};
+}

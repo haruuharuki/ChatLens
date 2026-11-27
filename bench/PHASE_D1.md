@@ -13,3 +13,6 @@ Device observation: the D.0 output for a private 1206×2622 iPhone Discord scree
 ## Limitations
 
 This is a geometry heuristic for the *observed Discord dark mobile screenshot*. It is not a model that semantically distinguishes photographs from text; other Discord layouts can invalidate its header x-position assumptions. Tesseract can still misread targeted headers, OpenThai can still garble Thai, and a wide/tall merged region may remain unresolved. Keep the original screenshot accessible, review unknown names, and avoid production promotion until real Safari evidence improves. No Discord credentials, external OCR endpoint, or private screenshots are committed.
+
+### D.1b isolated username pass
+An opt-out checkbox controls independent header-row detection. The colored username alone is re-read with Tesseract (excluding gray role chips) and combined with a timestamp only if actually visible in header OCR. It does **not** guess missing names, override corrections or guarantee Thai OCR accuracy. Always verify results against the private screenshot on iPhone Safari before promoting beyond bench.
