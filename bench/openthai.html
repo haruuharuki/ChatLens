@@ -13,7 +13,7 @@
  label{display:block;margin:12px 0 8px;font-weight:600}input[type=file],input[type=text],textarea,select{box-sizing:border-box;display:block;width:100%;padding:11px;color:#eff;background:#111726;border:1px solid #565a76;border-radius:10px;font:inherit}
  textarea{resize:vertical;min-height:100px;line-height:1.6}button{border:0;border-radius:10px;padding:12px 18px;background:#a99cfb;color:#171421;font:inherit;font-weight:700;margin:6px 0;cursor:pointer;width:100%}button:disabled{opacity:.45;cursor:not-allowed}.secondary{background:#353c55;color:#eee}
  .check{display:flex;gap:8px;align-items:flex-start;font-weight:400}.check input{margin-top:7px}
- .muted{font-size:.87rem;color:#aeb5ca}#progress{min-height:24px;font-size:.9rem;color:#c8beff;overflow-wrap:anywhere}
+ .muted{font-size:.87rem;color:#aeb5ca}#progress{min-height:24px;font-size:.94rem;color:#f1eaff;overflow-wrap:anywhere;background:#141a2b;border:1px solid #565a76;border-radius:10px;padding:12px;margin:12px 0}
  #view{width:100%;height:auto;background:#18181d;border-radius:8px;display:block;max-height:440px;object-fit:contain;object-position:top}
  .two{display:grid;grid-template-columns:1fr 1fr;gap:10px}@media(max-width:420px){.two{grid-template-columns:1fr}}
  .status{white-space:pre-wrap;overflow-wrap:anywhere;background:#111726;border:1px solid #424966;border-radius:12px;padding:12px}
@@ -21,7 +21,7 @@
 </head>
 <body><main>
  <p><a href="./">← กลับ OCR Benchmark</a> · <a href="../">ChatLens ปกติ</a></p>
- <h1>🧪 OpenThai 2.1 — ONNX Proof</h1>
+ <h1>🧪 OpenThai 2.1 — ONNX Proof <small style="font-size:.65em;color:#c4b8ff">Phase B.1</small></h1>
  <p><strong>Phase B แบบทดลอง:</strong> ให้ Tesseract ช่วยหาตำแหน่งบรรทัด แล้วให้ OpenThai อ่านเพียงหนึ่งบรรทัดเพื่อพิสูจน์ว่าโมเดล ONNX รันใน Safari ได้หรือไม่ <strong>ยังไม่ใช่การใช้ OpenThai เต็มระบบ</strong> และยังไม่เปลี่ยน ChatLens ปกติ</p>
  <div class="card">
   <h2>1. เลือกภาพ Discord 1 ภาพ</h2>
@@ -32,6 +32,7 @@
  </div>
  <div class="card">
   <h2>2. เลือกบรรทัดที่อยากเทียบ</h2>
+   <p class="muted">แนะนำให้เลือกบรรทัดข้อความเนื้อหา ไม่ใช่ชื่อผู้ใช้หรือเวลา เพื่อวัดความแม่นภาษาไทยโดยตรง</p>
   <select id="line" aria-label="บรรทัดที่ต้องการตรวจ"></select>
   <p id="extract" class="muted">ยังไม่ได้เลือกภาพ</p>
   <canvas id="view" aria-label="ภาพพร้อมกรอบบรรทัดที่เลือก"></canvas>
@@ -39,7 +40,9 @@
   <label for="channels">ลำดับช่องสีของโมเดล</label>
   <select id="channels"><option value="bgr">BGR (ค่าเริ่มต้นของ Paddle)</option><option value="rgb">RGB (ทดสอบหาก BGR เพี้ยน)</option></select>
   <button id="recognize" type="button" disabled>ทดลองอ่านบรรทัดนี้ด้วย OpenThai ONNX</button>
-  <p id="progress" role="status" aria-live="polite"></p>
+  <p id="progress" role="status" aria-live="polite">เลือกภาพและตรวจหาบรรทัดก่อนจ้า</p>
+   <pre id="error-detail" class="status" role="alert" hidden style="font-size:.88rem;color:#fff;white-space:pre-wrap"></pre>
+   <button id="copy-error" class="secondary" type="button" disabled>คัดลอกข้อมูลวินิจฉัย (ไม่รวมข้อความแชท)</button>
  </div>
  <div class="card">
   <h2>3. เปรียบเทียบข้อความ</h2>

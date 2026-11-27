@@ -1,6 +1,7 @@
 import {discordCropRect} from '../lib/scan-utils.mjs';
 import {extractOCRLines} from '../lib/discord-structure.mjs';
 import {evaluateText} from './metrics.mjs';
+import {runtimeSources, diagnosticReport} from './runtime-loader.mjs';
 import {
   MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,ORT_BASE,OPEN_THAI_REVISION,
   recognitionSize,recognitionTensorFromRGBA,greedyCTC,parseDictionary,usableLineBox
@@ -10,12 +11,12 @@ const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let original=null,canvas=null,lines=[],worker=null,model=null,ort=null,dictionary=null;
 let selectedText='',candidateText='',selectedLine=null,tesseractMs=0,modelLoadMs=0,recognitionMs=0;
-let loading=false;
+let loading=false, stage='idle', diagnostics='', runtimeAttempts=[];
 function status(msg){$('progress').textContent=msg;}
 function isLive(){return !loading;}
 function startBusy(){loading=true;$('choose').disabled=true;$('recognize').disabled=true;$('photo').disabled=true;}
 function stopBusy() {loading=false;$('photo').disabled=false;$('choose').disabled=!(canvas&&lines.length);$('recognize').disabled=!(canvas&&selectedLine);}
-function clearModelResults(){candidateText='';selectedText='';$('openthai').value='';$('baseline').value='';$('score').textContent='';$('copy').disabled=true;}
+function clearModelResults(){candidateText='';selectedText='';$('openthai').value='';$('baseline').value='';$('score').textContent='';$('copy').disabled=true;diagnostics='';$('copy-error').disabled=true;$('error-detail').hidden=true;}
 
 async function readImage(file){
  const url=URL.createObjectURL(file);
@@ -78,17 +79,56 @@ async function fetchArray(url,label){
  if(!response.ok)throw new Error(`${label} HTTP ${response.status}; แหล่งโมเดลอาจไม่พร้อมใช้งานบน Safari`);
  return response.arrayBuffer();
 }
+async function loadClassicRuntime(source){
+ return new Promise((resolve,reject)=>{
+  const script=document.createElement('script');
+  let finished=false;
+  const timeout=setTimeout(()=>end(new Error('Timeout loading ONNX Runtime JavaScript')),15000);
+  function end(error){
+    if(finished)return;
+    finished=true;clearTimeout(timeout);script.onload=null;script.onerror=null;
+    if(error){script.remove();reject(error);}
+    else resolve(window.ort);
+  }
+  script.src=source.url;script.crossOrigin='anonymous';
+  script.onload=()=>window.ort?.InferenceSession?.create ? end() : end(new Error('ONNX Runtime global missing after script load'));
+  script.onerror=()=>end(new Error('Network error loading ONNX Runtime JavaScript'));
+  document.head.append(script);
+ });
+}
+
+async function getOnnxRuntime(){
+ if(ort?.InferenceSession?.create)return ort;
+ stage='runtime-load';runtimeAttempts=[];
+ const sources=runtimeSources(ORT_VERSION);
+ for(const source of sources){
+  status(`กำลังโหลด ${source.label}…`);
+  try{
+    const runtime=source.kind==='classic' ? await loadClassicRuntime(source) : await import(source.url);
+    if(!runtime?.InferenceSession?.create || !runtime?.Tensor)throw new Error('Invalid ONNX Runtime exports');
+    runtimeAttempts.push({label:source.label,result:'ok'});
+    return {runtime,wasmBase:source.wasmBase};
+  }catch(error){
+    runtimeAttempts.push({label:source.label,result:'failed'});
+  }
+ }
+ throw new Error('โหลด ONNX Runtime ไม่สำเร็จจากแหล่งสำรองทั้งสามแบบ (Safari/CDN module loading)');
+}
+
 async function loadModel(){
  if(model)return;
  const begin=performance.now();
  status('กำลังโหลด ONNX Runtime Web...');
- ort=await import(`${ORT_BASE}esm/ort.min.js`);
- ort.env.wasm.wasmPaths=ORT_BASE;
+ const source=await getOnnxRuntime();
+ ort=source.runtime;
+ ort.env.wasm.wasmPaths=source.wasmBase;
  ort.env.wasm.numThreads=1;
  ort.env.wasm.proxy=false;
+ stage='model-fetch';
  const [modelBytes,dictBytes]=await Promise.all([fetchArray(MODEL_PATH,'OpenThai rec.onnx'),fetchArray(DICTIONARY_PATH,'OpenThai dictionary')]);
  dictionary=parseDictionary(new TextDecoder().decode(dictBytes));
  if(dictionary.length<100||dictionary.length>2000)throw new Error('พจนานุกรมมีจำนวนอักขระผิดปกติ');
+ stage='session-create';
  status('กำลังสร้าง ONNX Session บนเครื่อง...');
  model=await ort.InferenceSession.create(new Uint8Array(modelBytes),{executionProviders:['wasm'],graphOptimizationLevel:'all',enableMemPattern:false,enableCpuMemArena:false});
  if(!model?.inputNames?.length||!model?.outputNames?.length)throw new Error('ONNX Session ไม่คืนชื่ออินพุต/เอาต์พุต');
@@ -112,6 +152,7 @@ async function runOpenThai(){
  if(loading||!selectedLine)return;
  startBusy();
  try{
+  stage='runtime-load';diagnostics='';$('error-detail').hidden=true;$('copy-error').disabled=true;
   await loadModel();
   status('กำลังอ่านบรรทัดที่เลือกด้วย OpenThai ONNX...');
   const {data,dims}=cropLineIntoTensor();
@@ -126,7 +167,13 @@ async function runOpenThai(){
   $('copy').disabled=false;
   $('extract').textContent=`Tesseract ${tesseractMs} ms (ภาพรวม) · โหลด OpenThai ${modelLoadMs} ms · OpenThai ${recognitionMs} ms (1 บรรทัด) · ${decoded.steps} time steps`;
   evaluate();status('✓ ONNX รันได้บนเบราว์เซอร์นี้ (เป็นแค่ recognizer บรรทัดเดียว ไม่ใช่ OpenThai เต็มระบบ)');
- }catch(err){candidateText='';$('copy').disabled=true;status('⚠️ OpenThai ยังรันไม่ได้: '+String(err?.message||err));}
+ }catch(err){
+    candidateText='';$('copy').disabled=true;
+    diagnostics=diagnosticReport({stage,version:ORT_VERSION,attempts:runtimeAttempts,error:err});
+    $('error-detail').hidden=false;$('error-detail').textContent=`OpenThai ยังรันไม่ได้ · ขั้นตอน: ${stage}\n${String(err?.message||err)}`;
+    $('copy-error').disabled=false;
+    status('⚠️ ทดลอง OpenThai ไม่สำเร็จ — ดูข้อผิดพลาดและกดคัดลอกข้อมูลวินิจฉัยด้านล่าง');
+   }
  finally {stopBusy();}
 }
 function evaluate(){
@@ -136,6 +183,11 @@ function evaluate(){
  const pct=r=>r?(r.compactCer*100).toFixed(1)+'%':'ยังไม่มีผล';
  $('score').textContent=`CER ไม่คิดช่องว่าง · Tesseract ${pct(a)} · OpenThai ${pct(b)} · เทียบเฉพาะบรรทัดที่เลือก ไม่ใช่ทั้งภาพ`;
 }
+$('copy-error').addEventListener('click',async()=>{
+ if(!diagnostics)return;
+ try{await navigator.clipboard.writeText(diagnostics);status('✓ คัดลอกข้อมูลวินิจฉัยแล้ว (ไม่มีข้อความแชท)');}
+ catch(_){status('คัดลอกอัตโนมัติไม่ได้ เลือกข้อความในช่องวินิจฉัยแทนได้จ้า');$('error-detail').textContent=diagnostics;}
+});
 $('choose').addEventListener('click',scan);
 $('line').addEventListener('change',()=>selectLine(Number($('line').value)));
 $('recognize').addEventListener('click',runOpenThai);
