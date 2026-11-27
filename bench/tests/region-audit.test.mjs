@@ -37,3 +37,9 @@ test('blank area and unrelated text far away never trigger right expansion',()=>
  const end=extendTextRight(p,w,h,{x0:65,y0:12,x1:175,y1:47});
  assert.equal(end,null);
 });
+test('clipped avatar sliver with accidental tiny OCR is not a chat utterance',()=>{
+ const w=310,h=95;
+ const p=bitmap(w,h,(x,y)=>x<43&&y>14&&y<67?(x%3===0?[192,91,66]:[87,155,194]):[26,26,26]);
+ const r=auditDetectedRegion(line('fragment','p a',0,14,43,68),p,w,h,{typicalHeight:27});
+ assert.equal(r.kind,'graphic');
+});

@@ -34,6 +34,12 @@ export function auditDetectedRegion(line,pixels,width,height,{typicalHeight=0}={
  const thaiCount=Array.from(content).filter(x=>/[\u0e01-\u0e5b]/u.test(x)).length;
  const imageLike=(color+gray)/Math.max(1,total);
  const squareish=w/h>.45&&w/h<2.3;
+ // A profile avatar clipped by Auto Crop may be a narrow *sliver*, not a
+ // square. Its accidental OCR ('p a', etc.) should not become chat text.
+ // Require image-like pixels, very little readable Thai, no clock AND an
+ // extreme-left start before the actual Discord text column.
+ const avatarSliver=x0<width*.035&&x1<width*.23&&imageLike>.20&&thaiCount<3&&!clock.test(content);
+ if(avatarSliver)return {kind:'graphic',reason:'ชิ้นส่วนรูปโปรไฟล์ชิดขอบ ไม่ใช่เนื้อหาข้อความ',imageLike,bodyBand:null};
  const standaloneArtwork=squareish&&h>=Math.max(28,typicalHeight*.75)&&
     imageLike>.35&&white/total<.27&&thaiCount<3&&!clock.test(content);
  if(standaloneArtwork){return {kind:'graphic',reason:'สงสัยเป็นภาพล้วน (ไม่มีเนื้อหาตัวอักษรเพียงพอ) · ตรวจทบทวนได้',imageLike,bodyBand:null};}

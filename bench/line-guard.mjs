@@ -7,6 +7,7 @@ const TIME=/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i;
 const REPLY=/^(?:[\s\u2018\u2019\u201c\u201d'".›>•\d]{0,5})@|^(?:↳|ตอบกลับ\s*[:：])/u;
 const USER=/^(?:\[\s*(?:\d{1,2}|staff)\s*\]|\d{1,2}\s*[|｜]|multiple\b)/iu;
 const BADGE=/\b(?:TTO|DAV|APP|MEOW|Online)\b/i;
+const DATE_LINE=/^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+20\d{2}$/i;
 
 function numberInRange(value,lo,hi){return Number.isFinite(value)?Math.max(lo,Math.min(hi,value)):lo;}
 function sampleColor(r,g,b){const max=Math.max(r,g,b),min=Math.min(r,g,b);return max>125&&max-min>55;}
@@ -31,6 +32,7 @@ export function coloredNameFraction(rgba,width,height,box){
 export function classifyDiscordLine(line,{coloredFraction=0}={}){
  const text=String(line?.text??'').trim().replace(/\s+/g,' ');
  if(!text)return {kind:'fragment',reason:'ไม่มีตัวอักษร'};
+ if(DATE_LINE.test(text))return {kind:'date',reason:'วันที่คั่นบทสนทนา ไม่ใช่ชื่อหรือเนื้อหาข้อความ'};
  if(REPLY.test(text))return {kind:'reply',reason:'ขึ้นต้นแบบข้อความอ้างอิงของ Discord'};
  if(TIME.test(text))return {kind:'header',reason:'มีเวลาอยู่ในบรรทัดหัวข้อความ'};
  if((USER.test(text)||BADGE.test(text))&&coloredFraction>.15)return {kind:'header',reason:'พบสีชื่อผู้ใช้หรือป้ายยศ'};

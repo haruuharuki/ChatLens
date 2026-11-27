@@ -9,6 +9,7 @@ import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs';
 import {maskNonTextColors} from './text-color-mask.mjs';
 import {assembleTextTranscript,formatTextTranscript} from './text-transcript.mjs';
+import {discoverHeaderBands,splitBoxesAtHeaders} from './header-layout.mjs';
 
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
@@ -59,6 +60,52 @@ async function detectLines(file){
   const typicalHeight=heights.length?heights[Math.floor(heights.length*.5)]:0;
   ocrLines=ocrLines.map(line=>{const audit=auditDetectedRegion(line,pixels,imageCanvas.width,imageCanvas.height,{typicalHeight});return {...line,...audit};});
   bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
+  // Phase D.1: use author-colored layout as an INDEPENDENT source of candidate
+  // headers, not Tesseract's sometimes mixed header+body boxes. Re-OCR narrow
+  // horizontal strips before building the transcript. Source image unchanged.
+  const bands=discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height);
+  if(bands.length){
+   const original=ocrLines;
+   const separation=splitBoxesAtHeaders(original,bands,imageCanvas.width);
+   const improved=[];
+   for(const l of separation.lines){
+    if(l.needsBodyRead){
+     const box={...l.bbox,x1:Math.min(imageCanvas.width,Math.max(l.bbox.x1,Math.round(imageCanvas.width*.95)))};
+     const text=await rereadRegion({...l,bbox:box},'body');
+     improved.push({...l,bbox:box,text,needsBodyRead:false});
+    }else improved.push(l);
+   }
+   for(const band of bands){
+    const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
+    const nearby=original.filter(l=>l.bbox.y0<band.y1+14&&l.bbox.y1>band.y0-14)
+      .map(l=>String(l.text||'').replace(/\s+/g,' ').trim())
+      .find(t=>/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i.test(t));
+    const reread=await rereadRegion({bbox:headerBox},'header');
+    const valid=t=>/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i.test(t);
+    // Prefer targeted OCR; if it loses the clock, fall back only to the
+    // matching original screenshot region. Neither branch guesses a time.
+    const text=valid(reread)?reread:(nearby||reread);
+    improved.push({text,bbox:headerBox,kind:'header',reason:'ตรวจแถวชื่อด้วยสีและตำแหน่งภาพก่อน OCR (ยังต้องตรวจชื่อ)',layoutHeader:true});
+   }
+   ocrLines=improved.sort((a,b)=>a.bbox.y0-b.bbox.y0||a.bbox.x0-b.bbox.x0);
+  }
+  bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
+}
+/** Targeted second pass: geometry is known; never include pixels outside it. */
+async function rereadRegion(line,kind){
+ const b=line.bbox,c=document.createElement('canvas');
+ const x0=Math.max(0,Math.floor(b.x0)),y0=Math.max(0,Math.floor(b.y0));
+ c.width=Math.max(1,Math.min(imageCanvas.width,Math.ceil(b.x1))-x0);
+ c.height=Math.max(1,Math.min(imageCanvas.height,Math.ceil(b.y1))-y0);
+ c.getContext('2d',{willReadFrequently:true}).drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
+ // Header is a full single Discord username row. Do NOT use body-only masks
+ // on names: that previously erased colored username glyphs entirely.
+ if(kind==='body'&&$('text-only').checked){
+  const context=c.getContext('2d',{willReadFrequently:true}),im=context.getImageData(0,0,c.width,c.height);
+  const filter=maskNonTextColors(im.data,c.width,c.height);im.data.set(filter.pixels);context.putImageData(im,0,0);
+ }
+ const o=await (await getWorker()).recognize(c);
+ return String(o.data.text||'').replace(/\s+/g,' ').trim();
 }
 async function scriptRuntime(source){
  return new Promise((resolve,reject)=>{
@@ -275,7 +322,7 @@ function defaultReviewSelection(){
 }
 function renderReview(){
  const host=$('review-lines');host.replaceChildren();
-  const kinds={body:'เนื้อหาที่น่าจะใช่',mixed:'หัวข้อความ+เนื้อหาในกรอบเดียว',graphic:'รูปภาพล้วนที่สงสัย (ไม่นำเข้า OCR อัตโนมัติ)',reply:'Reply — ข้อความอ้างอิง',header:'ชื่อผู้ใช้ / เวลา / ยศ',fragment:'ข้อความสั้นหรืออ่านไม่ครบ'};
+  const kinds={date:'แถบวันที่',body:'เนื้อหาที่น่าจะใช่',mixed:'หัวข้อความ+เนื้อหาในกรอบเดียว',covered:'กรอบชื่อเดิมที่แยกอ่านใหม่แล้ว',graphic:'รูปภาพล้วนที่สงสัย (ไม่นำเข้า OCR อัตโนมัติ)',reply:'Reply — ข้อความอ้างอิง',header:'ชื่อผู้ใช้ / เวลา / ยศ',fragment:'ข้อความสั้นหรืออ่านไม่ครบ'};
  // Every row in a normal screenshot is reviewable. Cap the visual panel for
  // anomalously large files; ALL OCR candidates remain unmodified in memory.
  const cap=120;
