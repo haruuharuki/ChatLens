@@ -3,6 +3,7 @@ import { discordCropRect, checkSegmentsForReview } from './lib/scan-utils.mjs';
 import { sortCapturedFiles, sortScreenshotSegments, normalizeOCRText } from './lib/capture-utils.mjs';
 import { maskBottomPhoto } from './lib/media-guard.mjs';
 import { VISUAL_WIDTH, lumaFromRGBA, detectVisualOverlap } from './lib/visual-overlap.mjs';
+import { extractOCRLines, structureOCRLines, formatStructuredSegments } from './lib/discord-structure.mjs';
 
 const $ = id => document.getElementById(id);
 const segments = [];
@@ -19,7 +20,7 @@ function scheduleSave(){
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>{
     try {
-      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap}));
+      const items=segments.map(({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap,messages,structuredValid})=>({id,text,source,kind,confidence,second,error,fingerprint,enhanced,hasMedia,visualOverlap,messages,structuredValid}));
       const value=JSON.stringify({version:2,title:$('archive-title').value,manualImageOrder,segments:items});
       if(value.length>2500000) throw new Error('ข้อมูลมีขนาดใหญ่เกินสำหรับบันทึกในเบราว์เซอร์');
       localStorage.setItem(STORAGE_KEY,value);
@@ -47,7 +48,9 @@ function loadSession(){
         error:typeof item.error==='string'?item.error:undefined,
         fingerprint:typeof item.fingerprint==='string'?item.fingerprint:undefined,
         enhanced:item.enhanced===true, hasMedia:item.hasMedia===true,
-        visualOverlap:item.visualOverlap===true
+        visualOverlap:item.visualOverlap===true,
+        messages:Array.isArray(item.messages)?item.messages.slice(0,250):undefined,
+        structuredValid:item.structuredValid===true
       });
     }
     if(typeof saved.title==='string')$('archive-title').value=saved.title.slice(0,100);
@@ -65,7 +68,7 @@ function status(label, percent = 0) {
 }
 function setBusy(state) {
   busy = state;
-  for (const id of ['start-image','start-video','add-text','clear-all','demo','image-input','video-input','auto-crop','visual-overlap']) $(id).disabled = state;
+  for (const id of ['start-image','start-video','add-text','clear-all','demo','image-input','video-input','auto-crop','visual-overlap','output-format']) $(id).disabled = state;
   if (!state) $('progress-box').hidden = true;
 }
 function tabs(active) {
@@ -113,7 +116,7 @@ function render() {
     }
     header.append(desc,actions);
     const editor=document.createElement('textarea');editor.value=s.text;editor.setAttribute('aria-label',`แก้ไขข้อความช่วงที่ ${i+1}`);editor.spellcheck=false;
-    editor.addEventListener('input',()=>{s.text=editor.value;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;refreshStats();});
+    editor.addEventListener('input',()=>{s.text=editor.value;s.structuredValid=false;s.messages=undefined;meta.textContent=`${Number.isFinite(s.second)?`${s.second.toFixed(1)} วินาที · `:''}${s.confidence!=null?`คะแนนโมเดล OCR ${Math.round(s.confidence)}% · `:''}${s.text.length.toLocaleString('th-TH')} ตัวอักษร${s.hasMedia?' · พบภาพแนบ':''}${s.visualOverlap?' · ข้ามส่วนภาพซ้อนแล้ว':''}`;refreshStats();});
     item.append(header,editor);
     if(previews.has(s.id)){
       const previewBtn=document.createElement('button');previewBtn.className='text-button';previewBtn.type='button';previewBtn.textContent='ดูภาพต้นฉบับ';
@@ -133,9 +136,11 @@ function refreshStats(){
   const overlap=notices.filter(n=>n.type==='overlap').length;
   const visualSkipped=segments.filter(s=>s.visualOverlap).length;
   $('export-stats').textContent=`${segments.length} ช่วง · ${text.length.toLocaleString('th-TH')} ตัวอักษร`;
-  $('merged-preview').value=text;
+  const structured=formatStructuredSegments(segments);
+  const useStructured=$('output-format').value==='structured';
+  $('merged-preview').value=useStructured ? (structured.text || text) : text;
   $('merge-summary').textContent=segments.length
-    ? `ข้ามภาพซ้อนด้วยตำแหน่งภาพ ${visualSkipped} จุด · ตัดบรรทัดซ้ำตรงกัน ${overlap} จุด · รอยต่อยังไม่ยืนยัน ${uncertain} จุด${issues.length?' · มีจุดควรตรวจ '+issues.length+' จุด':''}
+    ? `${$('output-format').value==='structured' ? `แยกผู้พูดได้จาก ${structured.structuredCount}/${segments.length} ช่วง · ไม่ยืนยันผู้พูด ${structured.unknownCount} จุด · ` : ''}ข้ามภาพซ้อนด้วยตำแหน่งภาพ ${visualSkipped} จุด · ตัดบรรทัดซ้ำตรงกัน ${overlap} จุด · รอยต่อยังไม่ยืนยัน ${uncertain} จุด${issues.length?' · มีจุดควรตรวจ '+issues.length+' จุด':''}
 ข้อความยังอยู่ครบตาม OCR ไม่ลบส่วนที่คล้ายกันโดยคาดเดา`
     : 'เพิ่มภาพเพื่อดูข้อความทั้งหมดและจุดที่ควรตรวจ';
   const alerts=$('review-alerts');alerts.replaceChildren();
@@ -223,9 +228,22 @@ async function readImageFile(file, previousFrame=null) {
       try{media=maskBottomPhoto(canvas);}
       catch(_err){/* Low-memory Safari: OCR as-is */}
     }
-    const result=await worker.recognize(canvas);
+    // Tesseract.js v6 only exposes positional line boxes if blocks output is requested.
+    // Single OCR pass: no extra recognition, upload, or model download for structure.
+    let result;
+    try {result=await worker.recognize(canvas,{}, {text:true,blocks:true});}
+    catch(_blocksNotAvailable){result=await worker.recognize(canvas);}
     const text=normalizeOCRText(result.data.text)+(media?'\n[ภาพแนบในแชท — ไม่ได้ถอดรายละเอียดจากรูปภาพ]':'');
-    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media,visualOverlap:!!visualOverlap,frame};
+    const lines=extractOCRLines(result.data.blocks);
+    let structured={messages:[],headers:0,unknown:0};
+    if(lines.length){
+      let pixels=null;
+      try{pixels=canvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,canvas.width,canvas.height).data;}
+      catch(_memory){/* Bbox parser still works without colors on low-memory Safari. */}
+      structured=structureOCRLines(lines,{pixels,width:canvas.width,height:canvas.height});
+    }
+    const structuredValid=structured.headers>0 && structured.messages.length>0;
+    return {text,confidence:result.data.confidence,enhanced:false,hasMedia:!!media,visualOverlap:!!visualOverlap,frame,messages:structured.messages,structuredValid};
   } finally{URL.revokeObjectURL(url);}
 }
 
@@ -281,7 +299,7 @@ async function scanSelectedImages(){
         previousFrame=result.frame;
         if(result.visualOverlap)visualSkipped++;
         const target=existing||addSegment('',file.name,{kind:'image',fingerprint});
-         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;target.visualOverlap=result.visualOverlap;delete target.error;
+         target.text=result.text.trim();target.source=file.name;target.kind='image';target.confidence=result.confidence;target.enhanced=result.enhanced;target.hasMedia=result.hasMedia;target.visualOverlap=result.visualOverlap;target.messages=result.messages;target.structuredValid=result.structuredValid;delete target.error;
         if(previews.has(target.id))URL.revokeObjectURL(previews.get(target.id));
         previews.set(target.id,URL.createObjectURL(file));
         if(existing)skipped++;
@@ -350,8 +368,10 @@ function downloadBlob(contents,filename,type){
 }
 function archiveName(){return sanitizeTitle($('archive-title').value)}
 $('export-md').addEventListener('click',()=>{
-  const title=$('archive-title').value.trim()||'Discord Story Archive';
-  const md=exportMarkdown(segments,title);
+  const title=$('archive-title').value.trim()||'Discord Chat Archive';
+  const md=$('output-format').value==='structured'
+    ? `# ${title}\n\n> ChatLens: OCR อาจอ่านผิดและผู้พูดที่ไม่มั่นใจไม่ได้รับการยืนยัน\n\n${$('merged-preview').value}`
+    : exportMarkdown(segments,title);
   const size=Number($('chunk-size').value)||8000;
   const pieces=splitText(md,size);
   pieces.forEach((part,i)=>{
@@ -361,17 +381,18 @@ $('export-md').addEventListener('click',()=>{
   message(`ดาวน์โหลด Markdown ${pieces.length} ไฟล์แล้ว หากมือถือบล็อกหลายไฟล์ ลองเปลี่ยนขนาดให้ใหญ่ขึ้นหรือส่งออก TXT`);
 });
 $('export-txt').addEventListener('click',()=>{
-  downloadBlob(mergeSegments(segments).text,`${archiveName()}.txt`,'text/plain;charset=utf-8');
+  downloadBlob($('merged-preview').value,`${archiveName()}.txt`,'text/plain;charset=utf-8');
 });
 $('export-json').addEventListener('click',()=>{
   const merged=mergeSegments(segments);
-  const data={schema:'chatlens-v0.2.3',title:$('archive-title').value,exportedAt:new Date().toISOString(),notice:'User-provided captures only; completeness and OCR accuracy unverified',segments:segments.map(({id,...rest})=>rest),mergedText:merged.text,boundaryNotices:merged.notices};
+  const data={schema:'chatlens-v0.3',title:$('archive-title').value,exportedAt:new Date().toISOString(),notice:'User-provided captures only; completeness and OCR accuracy unverified',segments:segments.map(({id,...rest})=>rest),mergedText:merged.text,boundaryNotices:merged.notices,formattedText:formatStructuredSegments(segments).text};
   downloadBlob(JSON.stringify(data,null,2),`${archiveName()}.json`,'application/json;charset=utf-8');
 });
 loadSession();
 render();
 
 $('archive-title').addEventListener('input',scheduleSave);
+$('output-format').addEventListener('change',refreshStats);
 $('copy-text').addEventListener('click', async()=>{
   const text=$('merged-preview').value;
   if(!text.trim())return;

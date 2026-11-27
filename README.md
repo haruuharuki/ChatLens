@@ -1,6 +1,6 @@
 # ChatLens — Discord screenshot-to-text (Mobile first)
 
-> v0.2.3 · Static web app · https://haruuharuki.github.io/ChatLens/
+> v0.3 · Static web app · https://haruuharuki.github.io/ChatLens/
 
 **เป้าหมาย:** เลือกภาพแคป Discord หลายภาพบนมือถือ → อ่านข้อความ → คัดลอกไปวางใน ChatGPT โดยไม่ต้องครอปเอง
 
@@ -59,7 +59,7 @@ Four user supplied iPhone Discord screenshots (IMG_6768–6771) showed two separ
 - The Thai engine upgrade is a separate task: OpenThai 2.1 Text ONNX (Apache-2.0) supports Thai and English but its full browser runtime / Safari compatibility must be proved before replacing existing OCR. Do not claim the current release solves Thai accuracy.
 
 
-## v0.2.3 · Visual capture overlap (2026-11-26)
+## v0.3 · Visual capture overlap (2026-11-26)
 
 - User-provided IMG_6799 PNG → IMG_6800 JPEG → IMG_6801 PNG shows substantial screenshot overlap, while Thai OCR strings differ and exact-line merge cannot detect it.
 - Before OCR, screenshot thumbnails (360 px wide, in-memory only) are compared for high-confidence vertical pixel alignment; if both independent regions match, the next image is cropped to **mostly new content**, preserving two lines of safety overlap.
@@ -67,3 +67,13 @@ Four user supplied iPhone Discord screenshots (IMG_6768–6771) showed two separ
 - **Off by choice:** disable the checkbox and select the same screenshots again to re-read the full captured area.
 - Visual overlap works for consecutive images in the *same selected batch*; it cannot compare against images from a restored text-only session. A screenshot with no confident match is left untouched.
 - This solves neither incorrect Thai spelling nor the problem of chat sections that were never captured. Any screenshot/image still stays on the user's device, is not committed, and is not uploaded to GitHub/Drive.
+
+
+## v0.3 — Discord-aware OCR structure (experimental)
+
+- OCR output now requests Tesseract.js v6 `blocks: true` and reconstructs bounding-box lines locally.
+- Header parser looks for Discord time at line end and plausible speaker name, with colored-name pixels as an *advisory hint*. Text between two headers is grouped as message body; replies beginning with `@` immediately before a header can be attached as `replyTo`.
+- Copy mode defaults to `[ผู้พูด] — เวลา` + body. A dropdown instantly switches to original raw OCR. If line boxes or trusted headers are unavailable, **never fabricate a speaker**: show clearly labeled unstructured raw text.
+- Editing the raw OCR invalidates the old structured parse, preventing silently stale output. Re-import images to re-run structure extraction.
+- Per-image entries are stored in browser-local text storage alongside the original OCR string; image bytes stay ephemeral in device memory. Existing sessions are restored in raw fallback.
+- This is **not model training** or guaranteed Thai OCR accuracy, and does not fetch actual Discord messages. A local browser smoke test was blocked by environment network policy. Manual iPhone Safari validation remains necessary before claiming production readiness.
