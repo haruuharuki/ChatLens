@@ -21,8 +21,9 @@
 </head>
 <body><main>
  <p><a href="./">← กลับ OCR Benchmark</a> · <a href="../">ChatLens ปกติ</a></p>
- <h1>🧪 OpenThai 2.1 — ONNX Proof <small style="font-size:.65em;color:#c4b8ff">Phase B.1</small></h1>
+ <h1>🧪 OpenThai 2.1 — ONNX Proof <small style="font-size:.65em;color:#c4b8ff">Phase B.2</small></h1>
  <p><strong>Phase B แบบทดลอง:</strong> ให้ Tesseract ช่วยหาตำแหน่งบรรทัด แล้วให้ OpenThai อ่านเพียงหนึ่งบรรทัดเพื่อพิสูจน์ว่าโมเดล ONNX รันใน Safari ได้หรือไม่ <strong>ยังไม่ใช่การใช้ OpenThai เต็มระบบ</strong> และยังไม่เปลี่ยน ChatLens ปกติ</p>
+ <p id="client-build" class="muted" style="font-weight:700;color:#ffd88d" role="status">⚠️ JavaScript รุ่น B.2 ยังไม่เริ่มทำงาน (ถ้าไม่เปลี่ยน แสดงว่ายังได้ไฟล์เก่าจากแคช)</p>
  <div class="card">
   <h2>1. เลือกภาพ Discord 1 ภาพ</h2>
   <input id="photo" type="file" accept="image/*">
@@ -59,4 +60,4 @@
   <p>รุ่นนี้ใช้ OpenThai Text v2.1.4 เฉพาะ <code>rec.onnx</code> + พจนานุกรม ไม่ได้รัน <code>det.onnx</code>, <code>rec2.onnx</code> หรือระบบแก้ภาษาไทยใน Python แบบครบถ้วน ผลจึงอาจยังไม่ดี และไม่ควรนำคะแนนไปเทียบว่า OpenThai เต็มระบบด้อยหรือดีกว่า Tesseract ทั้งภาพ</p>
   <p>หากโหลดโมเดลไม่สำเร็จเพราะ CORS, Safari memory หรือ WASM ระบบจะแสดงข้อผิดพลาด ไม่แอบกลับไปใช้ Tesseract แล้วเรียกว่า OpenThai</p>
  </div>
-</main><script type="module" src="./openthai.js"></script></body></html>
+</main><script type="module" src="./openthai.js?build=b2-20261127"></script></body></html>

@@ -52,3 +52,10 @@ Visit [`/ChatLens/bench/openthai.html`](openthai.html). Select one locally held 
 A real iPhone Safari test recognized 23 line boxes with Tesseract, but the optional OpenThai proof failed at runtime JS loading with an opaque module import failure. The loader now tries a **WASM-only classic-script** bundle from pinned jsDelivr first, then a CDNJS fallback, and only then a WASM ESM variant. This is a **hypothesis-driven compatibility fix**, not evidence that OpenThai ONNX inference now works.
 
 A dedicated diagnostic copy button returns only failure stage, pinned runtime version, source attempts and broad error class. It intentionally never copies images, filenames, OCR text, usernames or an unrestricted exception message. On iPhone, test the same screenshot and report the copied diagnostic if inference still fails; the model may then reveal a separate ONNX/CORS/WASM incompatibility. The main ChatLens app is unaffected.
+
+
+## Phase B.2 — Safari cache-busting / version confirmation (2026-11-27)
+
+An iPhone screenshot showed new Phase B.1 HTML (the new diagnostic button) but **the OLD error-status string** `OpenThai ยังรันไม่ได้: Importing a module script failed.`. This status does not occur in the current Phase B.1 JavaScript. The most likely explanation is stale `openthai.js` cached independently of the updated HTML, although a different browser/cache state remains possible.
+
+The B.2 HTML loads `openthai.js?build=b2-20261127` to force a new module URL, and that entrypoint loads a cache-busted diagnostic helper. A visible build indicator must change from `JavaScript รุ่น B.2 ยังไม่เริ่มทำงาน` to `JavaScript รุ่น B.2-20261127 พร้อมทำงาน`. If it does not, the new script was not executed and no inference conclusion can be drawn. If it does, any remaining failures should be classified using the redacted diagnostic Copy button. The production scanner is unchanged.
