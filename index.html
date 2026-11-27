@@ -18,7 +18,7 @@
   </header>
   <main id="home" class="layout">
     <section class="hero">
-      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.3.1</div>
+      <div class="eyebrow">SCAN • STITCH • EXPORT <span>•</span> V0.3.2</div>
       <h1>แคปแชท แล้วคัดลอกได้เลย<br><span>ไม่ต้องครอปเองทีละภาพ</span></h1>
       <p>เลือกภาพแชทหลายภาพได้เลย เลือกภาพแชทหลายใบแล้วคัดลอกเป็น [ผู้พูด] — เวลา ได้ทันที ระบบใช้ตำแหน่งบรรทัดช่วยแยกข้อความ แต่ยังต้องตรวจคำภาษาไทยที่อ่านผิด</p>
       <div class="callout"><span>🔐</span><span>ไม่เชื่อมบัญชี Discord ไม่ใช้ User Token ไม่ส่งภาพหรือข้อความไปยังเซิร์ฟเวอร์ของแอป <strong>แต่ต้องใช้อินเทอร์เน็ตเพื่อโหลดตัว OCR ครั้งแรก</strong></span></div>
@@ -65,7 +65,7 @@
       <select id="output-format" class="output-format"><option value="structured" selected>🗣️ แยกผู้พูด + เวลา (ทดลอง)</option><option value="raw">📝 ข้อความ OCR ดิบ (ต้นฉบับ)</option></select>
       <div id="merge-summary" class="merge-summary">เพิ่มข้อความเพื่อดูผลรวมและรอยต่อที่ยังไม่ยืนยัน</div>
       <button id="copy-text" class="primary full copy-main" type="button" disabled>📋 คัดลอกบทสนทนาไปวางใน ChatGPT</button>
-      <p class="hint">โหมดแยกผู้พูดจะพยายามแยก Reply ที่อยู่เหนือข้อความใหม่เป็น “> ตอบกลับ: [ผู้ใช้] — ข้อความ…” ด้วย หากอ่านไม่ชัดจะไม่เดาชื่อ และกลับไปดู OCR ดิบได้ทันที</p>
+      <p class="hint">ระบบพยายามเมินแถบ Reaction (อีโมจิพร้อมจำนวนใต้ข้อความ) โดยไม่ลบอีโมจิในข้อความจริง · โหมดแยกผู้พูดจะพยายามแยก Reply ที่อยู่เหนือข้อความใหม่เป็น “> ตอบกลับ: [ผู้ใช้] — ข้อความ…” ด้วย หากอ่านไม่ชัดจะไม่เดาชื่อ และกลับไปดู OCR ดิบได้ทันที</p>
       <textarea id="merged-preview" rows="7" readonly aria-label="ข้อความทั้งหมดที่พร้อมคัดลอก" placeholder="ข้อความที่อ่านได้จะปรากฏที่นี่"></textarea>
       <details class="download-options"><summary>ตัวเลือกเพิ่มเติม · ดาวน์โหลดไฟล์</summary>
         <div class="action-row"><button id="export-md" class="secondary" type="button" disabled>Markdown</button><button id="export-txt" class="secondary" type="button" disabled>TXT</button><button id="export-json" class="secondary" type="button" disabled>JSON</button></div>
@@ -80,7 +80,7 @@
         <details id="review-details" class="review-details"><summary>เปิดดู / แก้ไขข้อความแต่ละภาพ (ไม่จำเป็นต้องตรวจทุกภาพ)</summary><div id="review-list" class="review-list" aria-live="polite"></div></details>
         <div class="footnote"><strong>สำคัญ:</strong> ระบบไม่แต่งข้อความที่หายเอง ตัดซ้ำเฉพาะหลักฐานตรงกันชัดเจน และไม่รับประกันว่าแคปครบทุกข้อความใน Discord</div>
       </section>
-    <footer>ChatLens v0.3.1 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
+    <footer>ChatLens v0.3.2 · ไม่ใช่ผลิตภัณฑ์ของ Discord · ออกแบบสำหรับเนื้อหาที่ผู้ใช้บันทึกเอง</footer>
   </main>
   <script type="module" src="app.js"></script>
 </body>

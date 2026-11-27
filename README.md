@@ -1,6 +1,6 @@
 # ChatLens — Discord screenshot-to-text (Mobile first)
 
-> v0.3.1 · Static web app · https://haruuharuki.github.io/ChatLens/
+> v0.3.2 · Static web app · https://haruuharuki.github.io/ChatLens/
 
 **เป้าหมาย:** เลือกภาพแคป Discord หลายภาพบนมือถือ → อ่านข้อความ → คัดลอกไปวางใน ChatGPT โดยไม่ต้องครอปเอง
 
@@ -88,3 +88,10 @@ Discord mobile renders a reply as a short, muted **preview above the replying se
 - The detection uses text-line position and indentation. It does **not** recognize the bent reply-connector line directly, and can miss replies if OCR mangles the `@` symbol or screenshots cut off part of the preview.
 - Raw OCR switch, copy/export, local-only storage and privacy remain unchanged. No real user screenshots or community chat content are committed to the public repo.
 - Tests use only synthetic examples based on the geometry of a private uploaded screenshot. iPhone Safari and real Thai OCR quality remain manual acceptance checks.
+
+## v0.3.2 — Ignore reaction UI in Discord dark mode (experimental)
+
+- React pills (emoji+count and the adjacent add-reaction button) sit **below** message content and are not part of a user's message. Mask **only rows of two or more** adjacent, recognizably colored UI chips in a disposable OCR canvas before recognition.
+- Preserve emoji, Unicode symbols and mentions inside actual message text; preserve reply preview and original screenshot review. An isolated ambiguous pill is deliberately **not masked** to avoid deleting user content.
+- Current detector is limited to the observed dark Discord theme; different themes, screens and compressed formats might not match. No blanket removal of emoji or numbers.
+- Tests use synthetic pill layouts. Private sample screenshot bytes are tested only in local diagnostics, not committed. OCR accuracy on iPhone Safari requires hands-on validation.
