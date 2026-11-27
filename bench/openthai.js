@@ -1,13 +1,16 @@
 import {discordCropRect} from '../lib/scan-utils.mjs';
 import {extractOCRLines} from '../lib/discord-structure.mjs';
 import {evaluateText} from './metrics.mjs';
-import {runtimeSources, diagnosticReport} from './runtime-loader.mjs';
+import {runtimeSources, diagnosticReport} from './runtime-loader.mjs?build=b2-20261127';
 import {
   MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,ORT_BASE,OPEN_THAI_REVISION,
   recognitionSize,recognitionTensorFromRGBA,greedyCTC,parseDictionary,usableLineBox
 } from './openthai-core.mjs';
 
 const $=id=>document.getElementById(id);
+const CLIENT_BUILD='B.2-20261127';
+const buildLabel=$('client-build');
+if(buildLabel) { buildLabel.textContent=`✓ JavaScript รุ่น ${CLIENT_BUILD} พร้อมทำงาน — ข้อผิดพลาดใหม่จะแสดงขั้นตอนที่ล้มเหลว`; buildLabel.style.color='#98efc5'; }
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let original=null,canvas=null,lines=[],worker=null,model=null,ort=null,dictionary=null;
 let selectedText='',candidateText='',selectedLine=null,tesseractMs=0,modelLoadMs=0,recognitionMs=0;

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
 import {runtimeSources,redactRuntimeError,diagnosticReport} from '../runtime-loader.mjs';
 
 test('ORT sources are pinned and try browser-friendly classic WASM before module',()=>{
@@ -29,4 +30,21 @@ test('diagnostic report omits user-provided contents and URL',()=>{
  assert.match(s,/ModuleImportFailed/);
  assert.doesNotMatch(s,/file:\/\/\/private|abc/);
  assert.doesNotMatch(s,/IMG_/);
+});
+
+
+test('Safari page cache-busts the ONNX experiment entrypoint and shows live build marker',()=>{
+ const html=readFileSync(new URL('../openthai.html',import.meta.url),'utf8');
+ const script=readFileSync(new URL('../openthai.js',import.meta.url),'utf8');
+ assert.match(html,/src="\.\/openthai\.js\?build=b2-20261127"/);
+ assert.match(html,/id="client-build"/);
+ assert.match(html,/Phase B\.2/);
+ assert.match(script,/CLIENT_BUILD='B\.2-20261127'/);
+ assert.match(script,/\$\('client-build'\)/);
+});
+
+test('Safari entrypoint cache-busts runtime loader helper too',()=>{
+ const script=readFileSync(new URL('../openthai.js',import.meta.url),'utf8');
+ assert.match(script,/runtime-loader\.mjs\?build=b2-20261127/);
+ assert.match(script,/ทดลอง OpenThai ไม่สำเร็จ/);
 });
