@@ -60,3 +60,13 @@ test('recognized headers and reply previews are excluded from default sampling b
  assert.deepEqual(chooseBatchLines(candidates,'sample12').map(x=>x.index),[3]);
  assert.deepEqual(chooseBatchLines(candidates,'all').map(x=>x.index),[0,1,2,3]);
 });
+
+test('image-only region remains reviewable but never automatically read in all mode',()=>{
+ const lines=[{...row('a',0),kind:'graphic'},{...row('บทสนทนาที่ยาวพอ',1),kind:'body'}];
+ assert.deepEqual(chooseBatchLines(lines,'all').map(x=>x.index),[1]);
+});
+test('mixed header+body box is eligible for a body test after safe band segmentation',()=>{
+ const lines=[{...row('Multiple 9:31 AM มีใครดูใหม่',0),kind:'mixed'},
+ {...row('Multiple 9:32 AM',1),kind:'header'}];
+ assert.deepEqual(chooseBatchLines(lines,'bodyall').map(x=>x.index),[0]);
+});

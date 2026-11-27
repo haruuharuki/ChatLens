@@ -64,3 +64,8 @@ The B.2 HTML loads `openthai.js?build=b2-20261127` to force a new module URL, an
 ## Phase C.2 — conservative layout awareness and omission review
 
 See [PHASE_C2.md](PHASE_C2.md). The experimental batch UI can mask suspected left avatar remnants and dense right-edge sticker/emoji blocks, with visual before/after preview and a reversible option. Review **all Tesseract-detected lines** before benchmarking; missing short lines and reply previews remain recoverable from the review panel, but lines Tesseract never detected are still outside this experiment. Parenthesized image-descriptions are not used for literal-text CER. This is not full Discord layout parsing and does not modify the production chat exporter.
+
+
+## Phase C.3 — region audit and continuation proof
+
+See [PHASE_C3.md](PHASE_C3.md). The isolated `/bench/batch.html` experiment now estimates which Tesseract regions are photo/avatar-only, conservatively separates a colored username/time line from a distinct white body band in one box, and optionally extends a short detected region only when nearby text-colored pixels continue beyond its right edge. Full original and submitted OCR crops remain visible. Photo-like regions remain reviewable; automatic `all` sampling no longer sends likely nontext images to OCR. These are unvalidated geometric hypotheses, **not** a production full Discord detector or completeness guarantee. Literal text-only CER must align to the actual processed ROI; do not grade a mixed header/body reference against only a body crop.

@@ -6,15 +6,16 @@ import {MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,OPEN_THAI_REVISION,recognitionSiz
 import {runtimeSources,diagnosticReport} from './runtime-loader.mjs';
 import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs';
 import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
+import {auditDetectedRegion,extendTextRight} from './region-audit.mjs';
 
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null,dictionary=null;
 let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
-let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set();
+let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
 function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
@@ -41,14 +42,20 @@ async function detectLines(file){
  const w=await getWorker();const begin=performance.now();
  const out=await w.recognize(imageCanvas,{}, {text:true,blocks:true});
  tesseractMs=Math.round(performance.now()-begin);
- const pixels=imageCanvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,imageCanvas.width,imageCanvas.height).data;
+  const pixels=imageCanvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,imageCanvas.width,imageCanvas.height).data;
+  imagePixels=pixels;
  ocrLines=extractOCRLines(out.data.blocks).filter(l=>usableLineBox(l,imageCanvas.width,imageCanvas.height)).map(l=>{
   const coloredFraction=coloredNameFraction(pixels,imageCanvas.width,imageCanvas.height,l.bbox);
   const type=classifyDiscordLine(l,{coloredFraction});
   return {...l,kind:type.kind,reason:type.reason};
  });
- if(!ocrLines.length)throw new Error('ไม่พบบรรทัดที่ตรวจสอบได้ ลองปิด Auto Crop หรือเปลี่ยนภาพ');
- bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
+  if(!ocrLines.length)throw new Error('ไม่พบบรรทัดที่ตรวจสอบได้ ลองปิด Auto Crop หรือเปลี่ยนภาพ');
+  // Audit screenshot geometry after OCR: a Tesseract line is NOT necessarily a
+  // Discord text line. Keep every region available for manual review.
+  const heights=ocrLines.map(x=>x.bbox.y1-x.bbox.y0).filter(h=>h>=11&&h<=imageCanvas.height*.08).sort((a,b)=>a-b);
+  const typicalHeight=heights.length?heights[Math.floor(heights.length*.5)]:0;
+  ocrLines=ocrLines.map(line=>{const audit=auditDetectedRegion(line,pixels,imageCanvas.width,imageCanvas.height,{typicalHeight});return {...line,...audit};});
+  bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
 }
 async function scriptRuntime(source){
  return new Promise((resolve,reject)=>{
@@ -95,22 +102,32 @@ async function loadOpenThai(){
 /** A single local line canvas is shared by BOTH engines in focused mode. */
 function preparedLineCanvas(line){
  const b=line.bbox,padX=4,padY=4;
- const x0=Math.max(0,Math.floor(b.x0)-padX),y0=Math.max(0,Math.floor(b.y0)-padY);
- const x1=Math.min(imageCanvas.width,Math.ceil(b.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(b.y1)+padY);
+ const focus=$('focus-body').checked;
+ const geometry=focus&&$('layout-focus').checked;
+ const mixedBand=geometry&&line.kind==='mixed'&&line.bodyBand;
+ const bodyTarget=mixedBand?{...b,y0:b.y0+line.bodyBand.top,y1:b.y0+line.bodyBand.bottom}:b;
+ const expansion=geometry&&$('extend-text').checked&&['body','mixed'].includes(line.kind)&&imagePixels?
+  extendTextRight(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget):null;
+ const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY);
+ const x1=Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(bodyTarget.y1)+padY);
  const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
- if(!$('focus-body').checked || line.kind!=='body')return {canvas:c,cleaned:false,layout:null};
+ // For headers, image-only regions and ambiguous fragments, show RAW pixels;
+ // don't pretend that the image-cleanup heuristics understand their meaning.
+ if(!focus||!['body','mixed'].includes(line.kind))return {canvas:c,cleaned:false,layout:null,expansion:0,mixedBand:false};
  const rgba=ctx.getImageData(0,0,c.width,c.height);
- const layout=$('layout-focus').checked?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:bodyTextAnchor}):null;
+ const layout=geometry?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:bodyTextAnchor}):null;
  const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:$('crop').checked});
  rgba.data.set(cleaned.pixels);ctx.putImageData(rgba,0,0);
+ const metadata={cleaned:true,layout,expansion:expansion?Math.max(0,Math.round(expansion-b.x1)):0,mixedBand:Boolean(mixedBand)};
  if(cleaned.band&&cleaned.band.bottom>cleaned.band.top){
   const out=document.createElement('canvas');out.width=c.width;out.height=cleaned.band.bottom-cleaned.band.top;
   out.getContext('2d').drawImage(c,0,cleaned.band.top,c.width,out.height,0,0,c.width,out.height);
-  return {canvas:out,cleaned:true,layout};
+  return {canvas:out,...metadata};
  }
- return {canvas:c,cleaned:true,layout};
+ return {canvas:c,...metadata};
 }
+
 function canvasTensor(c){
  const {width,height,drawWidth}=recognitionSize(c.width,c.height);
  const resized=document.createElement('canvas');resized.width=width;resized.height=height;
@@ -145,9 +162,12 @@ function buildRow(item){
  const badge=document.createElement('span');badge.className='tag';badge.textContent='กำลังรอ OpenThai';header.append(title,badge);
  const preview=originalPreview(item.line);preview.setAttribute('aria-label','บริเวณภาพต้นฉบับของบรรทัดนี้');
  const info=document.createElement('p');info.className='help';
- const kinds={body:'เนื้อหา',reply:'Reply preview',header:'หัวข้อความ/ชื่อ/ยศ',fragment:'ชิ้นส่วนที่อ่านไม่ครบ'};
+  const kinds={body:'เนื้อหา',mixed:'ชื่อ/เวลา + เนื้อหา (รวมในกรอบเดียว)',graphic:'สงสัยเป็นรูปภาพ ไม่ใช่แชท',reply:'Reply preview',header:'หัวข้อความ/ชื่อ/ยศ',fragment:'ชิ้นส่วนที่อ่านไม่ครบ'};
  info.textContent=`ประเภทโดยประมาณ: ${kinds[item.line.kind]||'ไม่ทราบ'} — ${item.line.reason||'ยังไม่ยืนยัน'}`;
- if(item.prepared.layout){
+  if(item.prepared.mixedBand)info.textContent+=' · ส่งเฉพาะแถบเนื้อหาสีขาวเข้า OCR (ภาพชื่อ/เวลาอยู่ในต้นฉบับ)';
+  if(item.prepared.expansion)info.textContent+=` · ขยายกรอบด้านขวา +${item.prepared.expansion}px (ทดลอง)`;
+  if(item.line.kind==='graphic')info.textContent+=' · รูปภาพไม่ใช่ข้อความแชทตามปกติ หากตั้งใจทดสอบให้เลือกด้วยตนเอง';
+  if(item.prepared.layout){
   const l=item.prepared.layout;
   if(l.leftCut||l.rightCut<l.width)info.textContent+=` · ทดลองปิดเศษภาพซ้าย ${l.leftCut}px / ขวา ${l.width-l.rightCut}px (ดูภาพครอปด้านล่าง)`;
  }
@@ -188,7 +208,9 @@ function refreshAccuracy(){
 }
 function refreshStats(){
  const {done,identical,different,failures}=counts();const stats=$('stats');stats.replaceChildren(
- makeStat('พบทั้งหมด',ocrLines.length+' บรรทัด'),makeStat('เลือกทดสอบ',items.length+' บรรทัด'),makeStat('ยังไม่ได้เลือก (ทบทวนได้)',Math.max(0,ocrLines.length-reviewSelection.size)+' บรรทัด'),
+  makeStat('กรอบที่ OCR ตรวจพบ (ไม่ใช่จำนวนข้อความแชท)',ocrLines.length+' กรอบ'),
+  makeStat('สงสัยเป็นภาพล้วน',ocrLines.filter(x=>x.kind==='graphic').length+' กรอบ'),
+  makeStat('ชื่อกับเนื้อหารวมในกรอบเดียว',ocrLines.filter(x=>x.kind==='mixed').length+' กรอบ'),makeStat('เลือกทดสอบ',items.length+' บรรทัด'),makeStat('ยังไม่ได้เลือก (ทบทวนได้)',Math.max(0,ocrLines.length-reviewSelection.size)+' บรรทัด'),
  makeStat('OpenThai สำเร็จ',done.length+' บรรทัด'),makeStat('ผลเหมือนกัน / ต่างกัน',identical+' / '+different),
  makeStat('Tesseract ตรวจภาพ',tesseractMs+' ms'),makeStat('Tesseract อ่าน ROI เพิ่ม',tesseractLineMs+' ms'),makeStat('OpenThai รวมเฉพาะ inference',totalInferenceMs+' ms'),
  makeStat('โหลดโมเดลครั้งแรก',modelLoadMs+' ms'),makeStat('อ่านไม่สำเร็จ',failures+' บรรทัด'));
@@ -210,7 +232,7 @@ function clearReview(){
  $('review-panel').hidden=true;$('review-lines').replaceChildren();$('review-summary').textContent='ยังไม่ได้ตรวจบรรทัด';
 }
 function updateReviewSummary(){
- $('review-summary').textContent=`ตรวจพบ ${ocrLines.length} บรรทัด · เลือกอ่าน ${reviewSelection.size} · ยังไม่ได้เลือก ${ocrLines.length-reviewSelection.size} (แตะเพื่อทบทวน)`;
+  $('review-summary').textContent=`ตรวจพบ ${ocrLines.length} กรอบ (ไม่ใช่จำนวนแชท) · เลือกอ่าน ${reviewSelection.size} · สงสัยภาพล้วน ${ocrLines.filter(x=>x.kind==='graphic').length} · ยังไม่ได้เลือก ${ocrLines.length-reviewSelection.size}`;
 }
 function defaultReviewSelection(){
  reviewSelection=new Set(chooseBatchLines(ocrLines,$('scope').value).map(x=>x.index));
@@ -218,7 +240,7 @@ function defaultReviewSelection(){
 }
 function renderReview(){
  const host=$('review-lines');host.replaceChildren();
- const kinds={body:'เนื้อหาที่น่าจะใช่',reply:'Reply — ข้อความอ้างอิง',header:'ชื่อผู้ใช้ / เวลา / ยศ',fragment:'ข้อความสั้นหรืออ่านไม่ครบ'};
+  const kinds={body:'เนื้อหาที่น่าจะใช่',mixed:'หัวข้อความ+เนื้อหาในกรอบเดียว',graphic:'รูปภาพล้วนที่สงสัย (ไม่นำเข้า OCR อัตโนมัติ)',reply:'Reply — ข้อความอ้างอิง',header:'ชื่อผู้ใช้ / เวลา / ยศ',fragment:'ข้อความสั้นหรืออ่านไม่ครบ'};
  // Every row in a normal screenshot is reviewable. Cap the visual panel for
  // anomalously large files; ALL OCR candidates remain unmodified in memory.
  const cap=120;
@@ -235,7 +257,7 @@ function renderReview(){
   });
   const area=document.createElement('div');area.className='review-desc';
   const name=document.createElement('strong');name.textContent=`บรรทัด ${index+1} · ${kinds[line.kind]||'ยังไม่ทราบ'}`;
-  const hint=document.createElement('small');hint.textContent=line.reason||'ตรวจภาพด้วยตาก่อนเลือก';
+   const hint=document.createElement('small');hint.textContent=(line.reason||'ตรวจภาพด้วยตาก่อนเลือก')+(line.kind==='graphic'?' · หากเป็นรูปจริง ไม่ต้องติ๊กเพื่อให้ OCR อ่าน':'');
   const preview=originalPreview(line);preview.className='review-image';preview.setAttribute('aria-label',`ภาพต้นฉบับบรรทัด ${index+1}`);
   area.append(name,hint,preview);entry.append(check,area);host.append(entry);
  }
@@ -247,7 +269,7 @@ async function reviewOnly(){
  toggleBusy(true);
  try{
   await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('review-panel').open=true;
-  say(`ตรวจพบ ${ocrLines.length} บรรทัด · เลือกไว้ ${reviewSelection.size} · เลือกข้อความสั้น/Reply เพิ่มได้ก่อนเริ่มเปรียบเทียบ`);
+  say(`ตรวจพบ ${ocrLines.length} กรอบ (ไม่ใช่จำนวนแชท) · เลือกไว้ ${reviewSelection.size} · เลือกข้อความสั้น/Reply เพิ่มได้ก่อนเริ่มเปรียบเทียบ`);
  }catch(err){say('ตรวจภาพไม่สำเร็จ: '+String(err?.message||'ไม่ทราบสาเหตุ'));}
  finally{toggleBusy(false);}
 }
@@ -294,8 +316,8 @@ $('start').addEventListener('click',run);
 $('review').addEventListener('click',reviewOnly);
 $('scope').addEventListener('change',()=>{if(reviewReady){defaultReviewSelection();renderReview();say('อัปเดตชุดตัวเลือกตามโหมดแล้ว · สามารถติ๊กเพิ่มหรือยกเลิกก่อนกดเริ่ม');}});
 $('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดหลังบรรทัดปัจจุบัน (ไม่สามารถตัด ONNX ระหว่าง inference ได้)');});
-$('photo').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
-$('crop').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
+$('photo').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
+$('crop').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
 $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
 window.addEventListener('pagehide',()=>{try{worker?.terminate();onnx?.release();}catch(_){}});
