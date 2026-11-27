@@ -5,14 +5,16 @@ import {chooseBatchLines,compareRuns,safeBatchReport} from './batch-core.mjs';
 import {MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,OPEN_THAI_REVISION,recognitionSize,recognitionTensorFromRGBA,greedyCTC,parseDictionary,usableLineBox} from './openthai-core.mjs';
 import {runtimeSources,diagnosticReport} from './runtime-loader.mjs';
 import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs';
+import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null,dictionary=null;
 let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
+let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set();
 function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('stop').disabled=!on;}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
@@ -46,6 +48,7 @@ async function detectLines(file){
   return {...l,kind:type.kind,reason:type.reason};
  });
  if(!ocrLines.length)throw new Error('ไม่พบบรรทัดที่ตรวจสอบได้ ลองปิด Auto Crop หรือเปลี่ยนภาพ');
+ bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
 }
 async function scriptRuntime(source){
  return new Promise((resolve,reject)=>{
@@ -96,16 +99,17 @@ function preparedLineCanvas(line){
  const x1=Math.min(imageCanvas.width,Math.ceil(b.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(b.y1)+padY);
  const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
- if(!$('focus-body').checked || line.kind!=='body')return {canvas:c,cleaned:false};
+ if(!$('focus-body').checked || line.kind!=='body')return {canvas:c,cleaned:false,layout:null};
  const rgba=ctx.getImageData(0,0,c.width,c.height);
- const cleaned=cleanBodyLineRGBA(rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:$('crop').checked});
+ const layout=$('layout-focus').checked?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:bodyTextAnchor}):null;
+ const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:$('crop').checked});
  rgba.data.set(cleaned.pixels);ctx.putImageData(rgba,0,0);
  if(cleaned.band&&cleaned.band.bottom>cleaned.band.top){
   const out=document.createElement('canvas');out.width=c.width;out.height=cleaned.band.bottom-cleaned.band.top;
   out.getContext('2d').drawImage(c,0,cleaned.band.top,c.width,out.height,0,0,c.width,out.height);
-  return {canvas:out,cleaned:true};
+  return {canvas:out,cleaned:true,layout};
  }
- return {canvas:c,cleaned:true};
+ return {canvas:c,cleaned:true,layout};
 }
 function canvasTensor(c){
  const {width,height,drawWidth}=recognitionSize(c.width,c.height);
@@ -143,6 +147,10 @@ function buildRow(item){
  const info=document.createElement('p');info.className='help';
  const kinds={body:'เนื้อหา',reply:'Reply preview',header:'หัวข้อความ/ชื่อ/ยศ',fragment:'ชิ้นส่วนที่อ่านไม่ครบ'};
  info.textContent=`ประเภทโดยประมาณ: ${kinds[item.line.kind]||'ไม่ทราบ'} — ${item.line.reason||'ยังไม่ยืนยัน'}`;
+ if(item.prepared.layout){
+  const l=item.prepared.layout;
+  if(l.leftCut||l.rightCut<l.width)info.textContent+=` · ทดลองปิดเศษภาพซ้าย ${l.leftCut}px / ขวา ${l.width-l.rightCut}px (ดูภาพครอปด้านล่าง)`;
+ }
  const cleanedLabel=document.createElement('p');cleanedLabel.className='help';cleanedLabel.textContent=item.prepared.cleaned?'ภาพที่ให้ทั้งสอง OCR อ่าน (กรองสีตกแต่งแล้ว — ทดลอง)':'ภาพที่ให้ OpenThai อ่าน (ไม่มีการกรอง)';
  const preparedPreview=item.prepared.canvas;preparedPreview.className='original';
  preparedPreview.setAttribute('aria-label','ภาพที่ใช้จริงในการเปรียบเทียบ OCR');
@@ -167,18 +175,20 @@ function updateRow(item){
 }
 function counts(){const done=items.filter(x=>x.candidate!==null&&!x.error);return {done,identical:done.filter(x=>compareRuns(x.baseline,x.candidate).identical).length,different:done.filter(x=>!compareRuns(x.baseline,x.candidate).identical).length,failures:items.filter(x=>x.error).length};}
 function refreshAccuracy(){
- const matched=items.filter(x=>x.truth.trim()&&x.candidate!==null&&!x.error);
- for(const item of items){if(!item.dom)return;const truth=item.truth.trim();const a=truth?evaluateText(truth,item.baseline):null;const b=truth&&item.candidate!==null&&!item.error?evaluateText(truth,item.candidate):null;
+ const matched=items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)&&x.candidate!==null&&!x.error);
+ for(const item of items){if(!item.dom)return;const truth=item.truth.trim();
+  if(referenceHasArtworkNotes(truth)){item.dom.score.textContent='⚠️ เฉลยมีคำอธิบายรูป/อีโมจิ จึงไม่คิด CER บรรทัดนี้ กรุณาใส่เฉพาะตัวอักษรจริง';continue;}
+  const a=truth?evaluateText(truth,item.baseline):null;const b=truth&&item.candidate!==null&&!item.error?evaluateText(truth,item.candidate):null;
   item.dom.score.textContent=!truth?'':`CER ไม่คิดช่องว่าง: Tesseract ${(a.compactCer*100).toFixed(1)}% · OpenThai ${b?(b.compactCer*100).toFixed(1)+'%':'ยังไม่อ่าน'}`;
  }
- const acc=$('accuracy');if(!matched.length){acc.textContent='ยังไม่มีข้อความเฉลย · “ตรงกัน” แปลว่าผลสองโมเดลเหมือนกัน ไม่ได้แปลว่าอ่านถูก';return;}
+ const acc=$('accuracy');if(!matched.length){acc.textContent='ยังไม่มีเฉลยตัวอักษรที่ใช้วัด CER ได้ · “ตรงกัน” แปลว่าผลสองโมเดลเหมือนกัน ไม่ได้แปลว่าอ่านถูก';return;}
  const a=evaluateAlignedSamples(matched.map(x=>({id:x.index,reference:x.truth,recognized:x.baseline}))).summary;
  const b=evaluateAlignedSamples(matched.map(x=>({id:x.index,reference:x.truth,recognized:x.candidate}))).summary;
  acc.textContent=`เฉพาะ ${matched.length} บรรทัดที่มีเฉลยและ OpenThai อ่านสำเร็จ: CER ไม่คิดช่องว่าง — Tesseract ${(a.compactCer*100).toFixed(1)}% · OpenThai ${(b.compactCer*100).toFixed(1)}% (น้อยกว่าดีกว่า)`;
 }
 function refreshStats(){
  const {done,identical,different,failures}=counts();const stats=$('stats');stats.replaceChildren(
- makeStat('พบทั้งหมด',ocrLines.length+' บรรทัด'),makeStat('เลือกทดสอบ',items.length+' บรรทัด'),
+ makeStat('พบทั้งหมด',ocrLines.length+' บรรทัด'),makeStat('เลือกทดสอบ',items.length+' บรรทัด'),makeStat('ยังไม่ได้เลือก (ทบทวนได้)',Math.max(0,ocrLines.length-reviewSelection.size)+' บรรทัด'),
  makeStat('OpenThai สำเร็จ',done.length+' บรรทัด'),makeStat('ผลเหมือนกัน / ต่างกัน',identical+' / '+different),
  makeStat('Tesseract ตรวจภาพ',tesseractMs+' ms'),makeStat('Tesseract อ่าน ROI เพิ่ม',tesseractLineMs+' ms'),makeStat('OpenThai รวมเฉพาะ inference',totalInferenceMs+' ms'),
  makeStat('โหลดโมเดลครั้งแรก',modelLoadMs+' ms'),makeStat('อ่านไม่สำเร็จ',failures+' บรรทัด'));
@@ -186,7 +196,7 @@ function refreshStats(){
  $('copy-safe').disabled=!items.length;
  $('copy-text').disabled=!items.length;
 }
-function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
+function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
  return ['ChatLens Phase C — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,...items.map(item=>`\n# Line ${item.index+1}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
@@ -194,14 +204,62 @@ async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}
  catch(_){$('fallback').hidden=false;$('fallback-text').value=text;$('fallback-text').focus();$('fallback-text').select();say('คัดลอกอัตโนมัติไม่สำเร็จ เลือกข้อความจากกล่องด้านล่างได้เลย');}
 }
+/** Reviews ALL detected OCR rows locally, including short speech and replies. */
+function clearReview(){
+ reviewReady=false;reviewSelection=new Set();bodyTextAnchor=null;
+ $('review-panel').hidden=true;$('review-lines').replaceChildren();$('review-summary').textContent='ยังไม่ได้ตรวจบรรทัด';
+}
+function updateReviewSummary(){
+ $('review-summary').textContent=`ตรวจพบ ${ocrLines.length} บรรทัด · เลือกอ่าน ${reviewSelection.size} · ยังไม่ได้เลือก ${ocrLines.length-reviewSelection.size} (แตะเพื่อทบทวน)`;
+}
+function defaultReviewSelection(){
+ reviewSelection=new Set(chooseBatchLines(ocrLines,$('scope').value).map(x=>x.index));
+ reviewReady=true;
+}
+function renderReview(){
+ const host=$('review-lines');host.replaceChildren();
+ const kinds={body:'เนื้อหาที่น่าจะใช่',reply:'Reply — ข้อความอ้างอิง',header:'ชื่อผู้ใช้ / เวลา / ยศ',fragment:'ข้อความสั้นหรืออ่านไม่ครบ'};
+ // Every row in a normal screenshot is reviewable. Cap the visual panel for
+ // anomalously large files; ALL OCR candidates remain unmodified in memory.
+ const cap=120;
+ for(let index=0;index<Math.min(ocrLines.length,cap);index++){
+  const line=ocrLines[index],entry=document.createElement('label');entry.className='review-item';
+  const check=document.createElement('input');check.type='checkbox';check.checked=reviewSelection.has(index);
+  check.setAttribute('aria-label',`นำบรรทัด ${index+1} เข้าทดสอบ`);
+  check.addEventListener('change',()=>{
+   if(check.checked){
+    if(reviewSelection.size>=60){check.checked=false;say('เลือกได้สูงสุด 60 บรรทัดต่อรอบ เพื่อจำกัดหน่วยความจำบนมือถือ');return;}
+    reviewSelection.add(index);
+   }else reviewSelection.delete(index);
+   updateReviewSummary();
+  });
+  const area=document.createElement('div');area.className='review-desc';
+  const name=document.createElement('strong');name.textContent=`บรรทัด ${index+1} · ${kinds[line.kind]||'ยังไม่ทราบ'}`;
+  const hint=document.createElement('small');hint.textContent=line.reason||'ตรวจภาพด้วยตาก่อนเลือก';
+  const preview=originalPreview(line);preview.className='review-image';preview.setAttribute('aria-label',`ภาพต้นฉบับบรรทัด ${index+1}`);
+  area.append(name,hint,preview);entry.append(check,area);host.append(entry);
+ }
+ if(ocrLines.length>cap){const extra=document.createElement('p');extra.textContent=`ภาพมีมากกว่า ${cap} บรรทัด: หน้าทบทวนแสดง ${cap} บรรทัดแรก แนะนำแบ่งภาพยาวเพื่อกันข้อมูลตกหล่น`;host.append(extra);}
+ $('review-panel').hidden=false;updateReviewSummary();
+}
+async function reviewOnly(){
+ if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
+ toggleBusy(true);
+ try{
+  await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('review-panel').open=true;
+  say(`ตรวจพบ ${ocrLines.length} บรรทัด · เลือกไว้ ${reviewSelection.size} · เลือกข้อความสั้น/Reply เพิ่มได้ก่อนเริ่มเปรียบเทียบ`);
+ }catch(err){say('ตรวจภาพไม่สำเร็จ: '+String(err?.message||'ไม่ทราบสาเหตุ'));}
+ finally{toggleBusy(false);}
+}
 async function run(){
  if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
  toggleBusy(true);stopRequested=false;wasCancelled=false;items=[];totalInferenceMs=0;tesseractLineMs=0;
  $('report').hidden=true;$('results').replaceChildren();$('fallback').hidden=true;$('copy-safe').disabled=true;$('progress').value=0;
  try{
   await detectLines(file);
-  const selected=chooseBatchLines(ocrLines,$('scope').value);
-  if(!selected.length)throw new Error('ไม่พบบรรทัดตามตัวกรอง ลองเลือก “ทุกบรรทัด”');
+  if(!reviewReady){defaultReviewSelection();renderReview();}
+  const selected=[...reviewSelection].sort((a,b)=>a-b).filter(i=>i>=0&&i<ocrLines.length).map(index=>({line:ocrLines[index],index}));
+  if(!selected.length)throw new Error('ยังไม่ได้เลือกบรรทัดเลย เปิดหน้าทบทวนแล้วเลือกอย่างน้อย 1 บรรทัด');
   items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
   $('progress').max=items.length;$('report').hidden=false;
   for(const item of items){$('results').append(buildRow(item));}refreshStats();
@@ -233,9 +291,11 @@ async function run(){
  }finally{toggleBusy(false);refreshStats();}
 }
 $('start').addEventListener('click',run);
+$('review').addEventListener('click',reviewOnly);
+$('scope').addEventListener('change',()=>{if(reviewReady){defaultReviewSelection();renderReview();say('อัปเดตชุดตัวเลือกตามโหมดแล้ว · สามารถติ๊กเพิ่มหรือยกเลิกก่อนกดเริ่ม');}});
 $('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดหลังบรรทัดปัจจุบัน (ไม่สามารถตัด ONNX ระหว่าง inference ได้)');});
-$('photo').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];$('report').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
-$('crop').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];});
+$('photo').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
+$('crop').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
 $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
 window.addEventListener('pagehide',()=>{try{worker?.terminate();onnx?.release();}catch(_){}});

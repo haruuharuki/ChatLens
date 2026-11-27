@@ -59,3 +59,8 @@ A dedicated diagnostic copy button returns only failure stage, pinned runtime ve
 An iPhone screenshot showed new Phase B.1 HTML (the new diagnostic button) but **the OLD error-status string** `OpenThai ยังรันไม่ได้: Importing a module script failed.`. This status does not occur in the current Phase B.1 JavaScript. The most likely explanation is stale `openthai.js` cached independently of the updated HTML, although a different browser/cache state remains possible.
 
 The B.2 HTML loads `openthai.js?build=b2-20261127` to force a new module URL, and that entrypoint loads a cache-busted diagnostic helper. A visible build indicator must change from `JavaScript รุ่น B.2 ยังไม่เริ่มทำงาน` to `JavaScript รุ่น B.2-20261127 พร้อมทำงาน`. If it does not, the new script was not executed and no inference conclusion can be drawn. If it does, any remaining failures should be classified using the redacted diagnostic Copy button. The production scanner is unchanged.
+
+
+## Phase C.2 — conservative layout awareness and omission review
+
+See [PHASE_C2.md](PHASE_C2.md). The experimental batch UI can mask suspected left avatar remnants and dense right-edge sticker/emoji blocks, with visual before/after preview and a reversible option. Review **all Tesseract-detected lines** before benchmarking; missing short lines and reply previews remain recoverable from the review panel, but lines Tesseract never detected are still outside this experiment. Parenthesized image-descriptions are not used for literal-text CER. This is not full Discord layout parsing and does not modify the production chat exporter.
