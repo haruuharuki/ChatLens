@@ -13,6 +13,7 @@ export function chooseBatchLines(lines,mode='sample12',max=MAX_BATCH_LINES){
  if(!Array.isArray(lines))return [];
  const valid=lines.map((line,index)=>({line,index})).filter(({line})=>line?.bbox&&String(line.text||'').trim());
  const body=valid.filter(({line})=>{
+  if(line.kind && line.kind!=='body')return false;
   const text=String(line.text).trim();
   return THAI.test(text)&&graphemes(text).length>=7&&!CLOCK.test(text)&&!/^[@#]/u.test(text);
  });
@@ -57,7 +58,7 @@ export function compareRuns(left,right){
 }
 
 /** Technical summary contains no OCR text, username, filenames or screenshots. */
-export function safeBatchReport({detected,selected,completed,identical,different,failures,cancelled,tesseractMs,modelLoadMs,inferenceMs,withTruth=0}={}){
+export function safeBatchReport({detected,selected,completed,identical,different,failures,cancelled,tesseractMs,modelLoadMs,inferenceMs,withTruth=0,tesseractLineMs=0,flaggedNonBody=0}={}){
  const int=x=>Math.max(0,Math.round(Number(x)||0));
  return [
   'ChatLens Phase C — anonymized OCR diagnostic (line recognizer only)',
@@ -69,6 +70,8 @@ export function safeBatchReport({detected,selected,completed,identical,different
   `failed lines: ${int(failures)}`,
   `cancelled: ${Boolean(cancelled)}`,
   `Tesseract full-image ms: ${int(tesseractMs)}`,
+   `Tesseract focused-line extra ms: ${int(tesseractLineMs)}`,
+   `flagged header/reply/fragment lines: ${int(flaggedNonBody)}`,
   `ONNX first model load ms: ${int(modelLoadMs)}`,
   `OpenThai total line inference ms: ${int(inferenceMs)}`,
   `lines with manually supplied ground truth: ${int(withTruth)}`,

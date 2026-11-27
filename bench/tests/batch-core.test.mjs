@@ -50,3 +50,13 @@ test('diagnostic summary excludes private chat data',()=>{
  assert.match(report,/selected lines: 12/);
  assert.doesNotMatch(report,/private|CONFIDENTIAL/);
 });
+test('recognized headers and reply previews are excluded from default sampling but reviewable in all mode',()=>{
+ const candidates=[
+  {...row('ข้อความอ้างอิงของคนก่อน',0),kind:'reply'},
+  {...row('ชื่อและยศผู้ใช้อยู่ตรงนี้',1),kind:'header'},
+  {...row('พ a',2),kind:'fragment'},
+  {...row('บทสนทนาที่ยาวเพียงพอ',3),kind:'body'}
+ ];
+ assert.deepEqual(chooseBatchLines(candidates,'sample12').map(x=>x.index),[3]);
+ assert.deepEqual(chooseBatchLines(candidates,'all').map(x=>x.index),[0,1,2,3]);
+});

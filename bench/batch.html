@@ -15,14 +15,15 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
 </head>
 <body><main>
 <p><a href="./">← OCR Benchmark</a> · <a href="openthai.html">ทดสอบทีละบรรทัด</a> · <a href="../">ChatLens หลัก</a></p>
-<h1>🔬 Phase C — Batch OCR Comparison</h1>
-<p>เลือกภาพ Discord ใบเดียว แล้วเปรียบเทียบ <b>Tesseract</b> กับ <b>OpenThai 2.1 ONNX</b> หลายบรรทัด โดยโหลดโมเดล OpenThai ครั้งเดียว ระบบไฮไลต์ข้อความที่ต่างกัน แต่<b>ไม่ได้ตัดสินว่าตัวไหนถูก</b> จนกว่าจะกรอกข้อความเฉลย</p>
+<h1>🔬 Phase C.1 — Text-only OCR Comparison</h1>
+<p>เลือกภาพ Discord ใบเดียว แล้วเปรียบเทียบ <b>Tesseract</b> กับ <b>OpenThai 2.1 ONNX</b> หลายบรรทัด โดยโหลดโมเดล OpenThai ครั้งเดียว โหมด 12 บรรทัดจะข้ามหัวข้อความและ Reply ที่ตรวจพบแบบระมัดระวัง ระบบไฮไลต์ข้อความที่ต่างกัน แต่<b>ไม่ได้ตัดสินว่าตัวไหนถูก</b> จนกว่าจะกรอกข้อความเฉลย</p>
 <div class="card">
  <h2>1. เลือกภาพและเริ่มทดลอง</h2>
  <label for="photo">ภาพ Discord</label><input id="photo" type="file" accept="image/*">
  <label for="scope">จำนวนบรรทัดที่จะเทียบ</label>
  <select id="scope"><option value="sample12">เลือกกระจายตามตำแหน่ง 12 บรรทัดเนื้อหา (แนะนำสำหรับ iPhone)</option><option value="bodyall">ทุกบรรทัดเนื้อหาที่ตรวจพบ (ไม่เกิน 60)</option><option value="all">ทุกบรรทัด รวมชื่อและเวลา (ไม่เกิน 60)</option></select>
  <label class="check"><input id="crop" type="checkbox" checked>ใช้ Auto Crop Discord</label>
+  <label class="check"><input id="focus-body" type="checkbox" checked>โฟกัสเฉพาะข้อความเนื้อหา: กรองพิกเซลสีของรูป/อีโมจิ และให้ทั้งสอง OCR อ่านภาพครอปเดียวกัน (ทดลอง)</label>
  <label class="check"><input id="invert" type="checkbox" checked>กลับสีพื้นหลังมืดเป็นสว่างก่อนให้ OpenThai อ่าน (ทดลอง)</label>
  <label for="channels">ลำดับสีของ OpenThai</label><select id="channels"><option value="bgr">BGR (ค่าเริ่มต้น)</option><option value="rgb">RGB (ทางเลือกทดลอง)</option></select>
  <div class="controls"><button id="start" type="button">เริ่มเปรียบเทียบหลายบรรทัด</button><button id="stop" class="warn" type="button" disabled>หยุดหลังบรรทัดปัจจุบัน</button><button id="copy-safe" class="alt" type="button" disabled>คัดลอกสรุปเทคนิค (ไม่รวมแชท)</button></div>
@@ -32,9 +33,10 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
 <div class="card" id="report" hidden>
  <h2>2. สรุปผลเบื้องต้น</h2><div id="stats" class="stats"></div><p id="accuracy" class="notice">บรรทัดที่อ่านเหมือนกัน ไม่ได้แปลว่าอ่านถูก</p>
  <button id="copy-text" class="alt" type="button">คัดลอกผลเทียบที่มีข้อความแชท</button>
- <p class="help">ปุ่มนี้คัดลอกข้อความแชทจริง โปรดระวังเมื่อนำไปแชร์ ส่วนปุ่มสรุปเทคนิคด้านบนไม่รวมเนื้อหาแชท</p>
+ <p class="help">ช่องเฉลยควรใส่เฉพาะตัวอักษรที่ปรากฏจริงในกรอบที่ส่งเข้า OCR อย่าใส่คำอธิบายแทนภาพ เช่น (โปรไฟล์) หรือ (อิโมจิ) มิฉะนั้น CER จะคลาดเคลื่อน โหมดกรองอาจลบอีโมจิที่อยู่ในเนื้อหาจริงด้วย ใช้เพื่อทดสอบเท่านั้น</p>
+  <p class="help">ปุ่มนี้คัดลอกข้อความแชทจริง โปรดระวังเมื่อนำไปแชร์ ส่วนปุ่มสรุปเทคนิคด้านบนไม่รวมเนื้อหาแชท</p>
 </div>
 <div id="results" class="results" aria-live="off"></div>
 <div id="fallback" class="card" hidden><label for="fallback-text">เลือกคัดลอกข้อความนี้ด้วยตนเอง</label><textarea id="fallback-text" rows="10"></textarea></div>
 <div class="card"><h2>ขอบเขตของการทดลอง</h2><p>ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></div>
-</main><script type="module" src="./batch.js?build=phasec-20261127"></script></body></html>
+</main><script type="module" src="./batch.js?build=phasec1-20261127"></script></body></html>
