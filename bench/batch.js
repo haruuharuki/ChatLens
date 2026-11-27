@@ -364,7 +364,8 @@ async function run(){
   if(!reviewReady){defaultReviewSelection();renderReview();}
   const selected=[...reviewSelection].sort((a,b)=>a-b).filter(i=>i>=0&&i<ocrLines.length).map(index=>({line:ocrLines[index],index}));
   if(!selected.length)throw new Error('ยังไม่ได้เลือกบรรทัดเลย เปิดหน้าทบทวนแล้วเลือกอย่างน้อย 1 บรรทัด');
-  transcriptEdited=false;items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
+  // Preserve any user-edited transcript while OCR results update.
+  items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
   $('progress').max=items.length;$('report').hidden=false;
   for(const item of items){$('results').append(buildRow(item));}refreshStats();
   if(stopRequested){wasCancelled=true;return;}
@@ -392,7 +393,7 @@ async function run(){
  }catch(err){
   const safe=diagnosticReport({stage,version:ORT_VERSION,attempts:runtimeAttempts,error:err});
   say('⚠️ การทดลองไม่สำเร็จในขั้น '+stage+'\n'+safe+'\nข้อความแชทไม่ได้ถูกส่งออกจากเครื่อง');
- }finally{toggleBusy(false);refreshStats();}
+ }finally{toggleBusy(false);refreshStats();if(ocrLines.length)refreshTranscript();}
 }
 $('start').addEventListener('click',run);
 $('review').addEventListener('click',reviewOnly);

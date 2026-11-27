@@ -53,3 +53,9 @@ test('Phase D.1 reads independent colored header bands before transcript',()=>{
  assert.match(js,/splitBoxesAtHeaders\(/);
  assert.match(js,/rereadRegion\(/);
 });
+
+test('Phase D.1 run refreshes transcript using OpenThai candidates but preserves manual edits',()=>{
+ assert.match(js,/finally\{toggleBusy\(false\);refreshStats\(\);if\(ocrLines\.length\)refreshTranscript\(\);\}/);
+ assert.match(js,/if\(transcriptEdited&&!force\)return;/);
+ assert.doesNotMatch(js,/transcriptEdited=false;items=selected\.map/);
+});
