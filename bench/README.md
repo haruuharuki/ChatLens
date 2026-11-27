@@ -38,3 +38,10 @@ Promote a new OCR engine only when it beats the baseline on the **same private i
 ## Explicit non-goals
 
 No cloud OCR endpoint, no Discord user token or unauthorized scraping, no hosting other members' chat screenshots in a public repository, no auto-fixing words with guessed text, no unreviewed production OCR replacement.
+
+
+## OpenThai ONNX line recognizer proof (Phase B)
+
+Visit [`/ChatLens/bench/openthai.html`](openthai.html). Select one locally held screenshot, let Tesseract identify line boxes, choose one line, then click the OpenThai ONNX button. The experiment uses the original version-pinned `rec.onnx` and `rec_dict.txt`, and ONNX Runtime Web on `wasm` (1 thread). The user can toggle BGR/RGB and dark-text inversion as isolated diagnostic settings. If model loading, browser CORS or ONNX inference fails, an error is shown; there is **no silent fallback**. Use the exact same line as hand-verified ground truth if measuring grapheme CER.
+
+**Important:** This is NOT a faithful port of OpenThai Text: there is no OpenThai detector, `rec2.onnx`, confidence-driven re-reads, script fixes, or faithful Python normalization. Tesseract's bounding boxes establish a fair crop for a recognizer-only probe, not a full OCR benchmark. Never use poor results as proof the official OpenThai pipeline is worse, and never claim that this test is validated on iPhone before a real Safari run. Code and models download from CDNs; screenshot pixels and text stay local.
