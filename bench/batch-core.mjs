@@ -13,11 +13,14 @@ export function chooseBatchLines(lines,mode='sample12',max=MAX_BATCH_LINES){
  if(!Array.isArray(lines))return [];
  const valid=lines.map((line,index)=>({line,index})).filter(({line})=>line?.bbox&&String(line.text||'').trim());
  const body=valid.filter(({line})=>{
-  if(line.kind && line.kind!=='body')return false;
+  if(line.kind && !['body','mixed'].includes(line.kind))return false;
   const text=String(line.text).trim();
-  return THAI.test(text)&&graphemes(text).length>=7&&!CLOCK.test(text)&&!/^[@#]/u.test(text);
+  return THAI.test(text)&&graphemes(text).length>=7&&
+   (line.kind==='mixed'||(!CLOCK.test(text)&&!/^[@#]/u.test(text)));
  });
- const candidates=mode==='all' ? valid : body;
+ // 'All' means all text candidates; photo/avatar regions stay reviewable but
+ // are never sent to recognizers by default. Users can tick one explicitly.
+ const candidates=mode==='all' ? valid.filter(({line})=>line.kind!=='graphic') : body;
  if(!['sample12','bodyall','all'].includes(mode))throw new Error('Unknown batch selection mode');
  const cap=Math.max(1,Math.min(MAX_BATCH_LINES,Math.floor(Number(max)||MAX_BATCH_LINES)));
  if(mode==='sample12'){
