@@ -4,14 +4,15 @@ import {evaluateAlignedSamples,evaluateText} from './metrics.mjs';
 import {chooseBatchLines,compareRuns,safeBatchReport} from './batch-core.mjs';
 import {MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,OPEN_THAI_REVISION,recognitionSize,recognitionTensorFromRGBA,greedyCTC,parseDictionary,usableLineBox} from './openthai-core.mjs';
 import {runtimeSources,diagnosticReport} from './runtime-loader.mjs';
+import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs';
 
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null,dictionary=null;
-let modelLoadMs=0,tesseractMs=0,totalInferenceMs=0;
+let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
 function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('stop').disabled=!on;}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('stop').disabled=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
@@ -38,7 +39,12 @@ async function detectLines(file){
  const w=await getWorker();const begin=performance.now();
  const out=await w.recognize(imageCanvas,{}, {text:true,blocks:true});
  tesseractMs=Math.round(performance.now()-begin);
- ocrLines=extractOCRLines(out.data.blocks).filter(l=>usableLineBox(l,imageCanvas.width,imageCanvas.height));
+ const pixels=imageCanvas.getContext('2d',{willReadFrequently:true}).getImageData(0,0,imageCanvas.width,imageCanvas.height).data;
+ ocrLines=extractOCRLines(out.data.blocks).filter(l=>usableLineBox(l,imageCanvas.width,imageCanvas.height)).map(l=>{
+  const coloredFraction=coloredNameFraction(pixels,imageCanvas.width,imageCanvas.height,l.bbox);
+  const type=classifyDiscordLine(l,{coloredFraction});
+  return {...l,kind:type.kind,reason:type.reason};
+ });
  if(!ocrLines.length)throw new Error('ไม่พบบรรทัดที่ตรวจสอบได้ ลองปิด Auto Crop หรือเปลี่ยนภาพ');
 }
 async function scriptRuntime(source){
@@ -83,18 +89,33 @@ async function loadOpenThai(){
  if(!onnx.inputNames?.length||!onnx.outputNames?.length)throw new Error('ONNX ไม่มีชื่อ input/output');
  modelLoadMs=Math.round(performance.now()-begin);
 }
-function lineTensor(line){
+/** A single local line canvas is shared by BOTH engines in focused mode. */
+function preparedLineCanvas(line){
  const b=line.bbox,padX=4,padY=4;
  const x0=Math.max(0,Math.floor(b.x0)-padX),y0=Math.max(0,Math.floor(b.y0)-padY);
  const x1=Math.min(imageCanvas.width,Math.ceil(b.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(b.y1)+padY);
- const {width,height,drawWidth}=recognitionSize(x1-x0,y1-y0);
- const c=document.createElement('canvas');c.width=width;c.height=height;
- const ctx=c.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#777';ctx.fillRect(0,0,width,height);
- ctx.drawImage(imageCanvas,x0,y0,x1-x0,y1-y0,0,0,drawWidth,height);
+ const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
+ const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
+ if(!$('focus-body').checked || line.kind!=='body')return {canvas:c,cleaned:false};
+ const rgba=ctx.getImageData(0,0,c.width,c.height);
+ const cleaned=cleanBodyLineRGBA(rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:$('crop').checked});
+ rgba.data.set(cleaned.pixels);ctx.putImageData(rgba,0,0);
+ if(cleaned.band&&cleaned.band.bottom>cleaned.band.top){
+  const out=document.createElement('canvas');out.width=c.width;out.height=cleaned.band.bottom-cleaned.band.top;
+  out.getContext('2d').drawImage(c,0,cleaned.band.top,c.width,out.height,0,0,c.width,out.height);
+  return {canvas:out,cleaned:true};
+ }
+ return {canvas:c,cleaned:true};
+}
+function canvasTensor(c){
+ const {width,height,drawWidth}=recognitionSize(c.width,c.height);
+ const resized=document.createElement('canvas');resized.width=width;resized.height=height;
+ const ctx=resized.getContext('2d',{willReadFrequently:true});ctx.fillStyle='#777';ctx.fillRect(0,0,width,height);
+ ctx.drawImage(c,0,0,c.width,c.height,0,0,drawWidth,height);
  return recognitionTensorFromRGBA(ctx.getImageData(0,0,width,height).data,width,height,drawWidth,{invert:$('invert').checked,channelOrder:$('channels').value});
 }
-async function recognizeOne(line){
- const {data,dims}=lineTensor(line);
+async function recognizeOne(sourceCanvas){
+ const {data,dims}=canvasTensor(sourceCanvas);
  const before=performance.now();
  const result=await onnx.run({[onnx.inputNames[0]]:new ort.Tensor('float32',data,dims)});
  const took=Math.round(performance.now()-before);
@@ -119,6 +140,12 @@ function buildRow(item){
  const header=document.createElement('div');header.className='row-head';const title=document.createElement('strong');title.textContent=`บรรทัด ${item.index+1}`;
  const badge=document.createElement('span');badge.className='tag';badge.textContent='กำลังรอ OpenThai';header.append(title,badge);
  const preview=originalPreview(item.line);preview.setAttribute('aria-label','บริเวณภาพต้นฉบับของบรรทัดนี้');
+ const info=document.createElement('p');info.className='help';
+ const kinds={body:'เนื้อหา',reply:'Reply preview',header:'หัวข้อความ/ชื่อ/ยศ',fragment:'ชิ้นส่วนที่อ่านไม่ครบ'};
+ info.textContent=`ประเภทโดยประมาณ: ${kinds[item.line.kind]||'ไม่ทราบ'} — ${item.line.reason||'ยังไม่ยืนยัน'}`;
+ const cleanedLabel=document.createElement('p');cleanedLabel.className='help';cleanedLabel.textContent=item.prepared.cleaned?'ภาพที่ให้ทั้งสอง OCR อ่าน (กรองสีตกแต่งแล้ว — ทดลอง)':'ภาพที่ให้ OpenThai อ่าน (ไม่มีการกรอง)';
+ const preparedPreview=item.prepared.canvas;preparedPreview.className='original';
+ preparedPreview.setAttribute('aria-label','ภาพที่ใช้จริงในการเปรียบเทียบ OCR');
  const pair=document.createElement('div');pair.className='pair';
  const left=document.createElement('div'),right=document.createElement('div');
  const leftLabel=document.createElement('div');leftLabel.className='pair-title';leftLabel.textContent='Tesseract';
@@ -128,7 +155,8 @@ function buildRow(item){
  const truthWrap=document.createElement('div');truthWrap.className='truth';const label=document.createElement('label');label.textContent='ข้อความเฉลยจากภาพ (ไม่บังคับ)';label.htmlFor='truth-'+item.index;
  const input=document.createElement('textarea');input.id=label.htmlFor;input.rows=2;input.placeholder='พิมพ์เฉพาะข้อความจริงในบรรทัดนี้เพื่อวัด CER';input.spellcheck=false;
  const score=document.createElement('div');score.className='score';input.addEventListener('input',()=>{item.truth=input.value;refreshAccuracy();});truthWrap.append(label,input,score);
- outer.append(header,preview,pair,truthWrap);item.dom={badge,baseline,candidate,score};return outer;
+ outer.append(header,info,preview,cleanedLabel,preparedPreview,pair,truthWrap);
+ item.dom={badge,baseline,candidate,score};return outer;
 }
 function updateRow(item){
  if(item.error){item.dom.badge.className='tag fail';item.dom.badge.textContent='OpenThai อ่านไม่สำเร็จ';item.dom.candidate.textContent='ไม่สำเร็จ (ไม่นับเป็นผล OCR)';return;}
@@ -152,13 +180,13 @@ function refreshStats(){
  const {done,identical,different,failures}=counts();const stats=$('stats');stats.replaceChildren(
  makeStat('พบทั้งหมด',ocrLines.length+' บรรทัด'),makeStat('เลือกทดสอบ',items.length+' บรรทัด'),
  makeStat('OpenThai สำเร็จ',done.length+' บรรทัด'),makeStat('ผลเหมือนกัน / ต่างกัน',identical+' / '+different),
- makeStat('Tesseract ทั้งภาพ',tesseractMs+' ms'),makeStat('OpenThai รวมเฉพาะ inference',totalInferenceMs+' ms'),
+ makeStat('Tesseract ตรวจภาพ',tesseractMs+' ms'),makeStat('Tesseract อ่าน ROI เพิ่ม',tesseractLineMs+' ms'),makeStat('OpenThai รวมเฉพาะ inference',totalInferenceMs+' ms'),
  makeStat('โหลดโมเดลครั้งแรก',modelLoadMs+' ms'),makeStat('อ่านไม่สำเร็จ',failures+' บรรทัด'));
  refreshAccuracy();
  $('copy-safe').disabled=!items.length;
  $('copy-text').disabled=!items.length;
 }
-function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()).length});}
+function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
  return ['ChatLens Phase C — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,...items.map(item=>`\n# Line ${item.index+1}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
@@ -168,13 +196,13 @@ async function copyOrShow(text){
 }
 async function run(){
  if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
- toggleBusy(true);stopRequested=false;wasCancelled=false;items=[];totalInferenceMs=0;
+ toggleBusy(true);stopRequested=false;wasCancelled=false;items=[];totalInferenceMs=0;tesseractLineMs=0;
  $('report').hidden=true;$('results').replaceChildren();$('fallback').hidden=true;$('copy-safe').disabled=true;$('progress').value=0;
  try{
   await detectLines(file);
   const selected=chooseBatchLines(ocrLines,$('scope').value);
   if(!selected.length)throw new Error('ไม่พบบรรทัดตามตัวกรอง ลองเลือก “ทุกบรรทัด”');
-  items=selected.map(({line,index})=>({line,index,baseline:line.text,candidate:null,error:null,truth:'',dom:null}));
+  items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
   $('progress').max=items.length;$('report').hidden=false;
   for(const item of items){$('results').append(buildRow(item));}refreshStats();
   if(stopRequested){wasCancelled=true;return;}
@@ -182,7 +210,17 @@ async function run(){
   for(let i=0;i<items.length;i++){
    if(stopRequested){wasCancelled=true;break;}
    const item=items[i];say(`กำลังให้ OpenThai อ่านบรรทัด ${i+1}/${items.length} (ทำทีละบรรทัดเพื่อลดภาระ Safari)`);
-   try{const result=await recognizeOne(item.line);item.candidate=result.text;totalInferenceMs+=result.took;}
+   try{
+    if(item.prepared.cleaned){
+     // Re-read the EXACT cleaned pixel region with Tesseract; comparing its old
+     // full-image output against an edited OpenThai crop would be unfair.
+     const started=performance.now();const reread=await (await getWorker()).recognize(item.prepared.canvas);
+     tesseractLineMs+=Math.round(performance.now()-started);
+     item.baseline=String(reread.data.text||'').replace(/\s+/g,' ').trim();
+    }
+    const result=await recognizeOne(item.prepared.canvas);
+    item.candidate=result.text;totalInferenceMs+=result.took;
+   }
    catch(err){item.error=true;const safe=diagnosticReport({stage:'inference',version:ORT_VERSION,attempts:runtimeAttempts,error:err});console.warn('Batch line inference failed; redacted: '+safe.split('\n').slice(-3).join(' | '));}
    updateRow(item);$('progress').value=i+1;refreshStats();
    // Yield after each line so Safari can paint progress and handle cancel.
