@@ -26,6 +26,7 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
   <label class="check"><input id="focus-body" type="checkbox" checked>โฟกัสเฉพาะข้อความเนื้อหา: กรองพิกเซลสีของรูป/อีโมจิ และให้ทั้งสอง OCR อ่านภาพครอปเดียวกัน (ทดลอง)</label>
  <label class="check"><input id="layout-focus" type="checkbox" checked>ทดลองแยกคอลัมน์เนื้อหาและปิดรูป/อีโมจิท้ายบรรทัดตามขอบเขตภาพ (ใช้คู่กับตัวกรองด้านบน ปิดได้หากตัวอักษรหาย)</label>
  <label class="check"><input id="extend-text" type="checkbox" checked>ลองขยายกรอบทางขวาเมื่อพบพิกเซลตัวหนังสือต่อจากขอบ Tesseract (ปิดได้หากติดข้อความอื่น)</label>
+ <label class="check"><input id="layout-headers" type="checkbox" checked>ทดลองหาแถวชื่อผู้พูดจากตำแหน่งและสีชื่อ แยกอ่านชื่อ/เวลาก่อนประกอบแชท (ปิดได้หากจัดกลุ่มผิด)</label>
  <label class="check"><input id="text-only" type="checkbox" checked>ทดลองแยกเฉพาะสีตัวอักษรในกรอบ OCR (ไม่ใช่ AI จำแนกรูป: อาจเหลือชิ้นส่วนภาพ หรือปิดสีข้อความผิดได้)</label>
   <label class="check"><input id="invert" type="checkbox" checked>กลับสีพื้นหลังมืดเป็นสว่างก่อนให้ OpenThai อ่าน (ทดลอง)</label>
  <label for="channels">ลำดับสีของ OpenThai</label><select id="channels"><option value="bgr">BGR (ค่าเริ่มต้น)</option><option value="rgb">RGB (ทางเลือกทดลอง)</option></select>
@@ -53,4 +54,4 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
  <details id="technical-results" class="card"><summary style="cursor:pointer;font-weight:700">🔎 ดูกรอบ OCR รายบรรทัด (สำหรับตรวจข้อผิดพลาด)</summary><div id="results" class="results" aria-live="off"></div></details>
 <div id="fallback" class="card" hidden><label for="fallback-text">เลือกคัดลอกข้อความนี้ด้วยตนเอง</label><textarea id="fallback-text" rows="10"></textarea></div>
 <div class="card"><h2>ขอบเขตของการทดลอง</h2><p>คำว่า "กรอบ" ในหน้านี้ไม่ใช่จำนวนข้อความ Discord จริง เพราะ Tesseract อาจตรวจพบรูปภาพ/โปรไฟล์เป็นกรอบ OCR ด้วย ตัวทดลองนี้ยังไม่ใช่ตัวแยกโครงสร้าง Discord เต็มระบบ และอาจพลาดข้อความที่ Tesseract ไม่ตรวจพบเลย ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></div>
-</main><script type="module" src="./batch.js?build=phase-d1-20261127"></script></body></html>
+</main><script type="module" src="./batch.js?build=phase-d1b-20261127"></script></body></html>

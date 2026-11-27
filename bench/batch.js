@@ -9,7 +9,7 @@ import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs';
 import {maskNonTextColors} from './text-color-mask.mjs';
 import {assembleTextTranscript,formatTextTranscript} from './text-transcript.mjs';
-import {discoverHeaderBands,splitBoxesAtHeaders} from './header-layout.mjs';
+import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs';
 
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
@@ -19,7 +19,7 @@ let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[
 let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
 let transcriptEdited=false;
 function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
@@ -63,7 +63,7 @@ async function detectLines(file){
   // Phase D.1: use author-colored layout as an INDEPENDENT source of candidate
   // headers, not Tesseract's sometimes mixed header+body boxes. Re-OCR narrow
   // horizontal strips before building the transcript. Source image unchanged.
-  const bands=discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height);
+  const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height):[];
   if(bands.length){
    const original=ocrLines;
    const separation=splitBoxesAtHeaders(original,bands,imageCanvas.width);
@@ -81,11 +81,13 @@ async function detectLines(file){
       .map(l=>String(l.text||'').replace(/\s+/g,' ').trim())
       .find(t=>/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i.test(t));
     const reread=await rereadRegion({bbox:headerBox},'header');
-    const valid=t=>/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i.test(t);
-    // Prefer targeted OCR; if it loses the clock, fall back only to the
-    // matching original screenshot region. Neither branch guesses a time.
-    const text=valid(reread)?reread:(nearby||reread);
-    improved.push({text,bbox:headerBox,kind:'header',reason:'ตรวจแถวชื่อด้วยสีและตำแหน่งภาพก่อน OCR (ยังต้องตรวจชื่อ)',layoutHeader:true});
+    // The colored username ends before Discord's gray role badge.
+    // Read a second name-only crop; combine only with a clock visible in
+    // this image. Raw header and candidate remain reviewable.
+    const nameBox={...headerBox,x1:Math.min(headerBox.x1,Math.max(headerBox.x0+24,band.nameEnd+12))};
+    const nameOnly=await rereadRegion({bbox:nameBox},'header');
+    const {text,usedNameOnly}=combineRecognizedHeader({full:reread,nameOnly,nearby});
+    improved.push({text,bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านเฉพาะสีชื่อผู้พูด แล้วจับเวลาจากกรอบหัวข้อความ':'ตรวจแถวชื่อด้วยสีและตำแหน่งภาพก่อน OCR (ยังต้องตรวจชื่อ)',layoutHeader:true});
    }
    ocrLines=improved.sort((a,b)=>a.bbox.y0-b.bbox.y0||a.bbox.x0-b.bbox.x0);
   }
@@ -399,6 +401,7 @@ $('start').addEventListener('click',run);
 $('review').addEventListener('click',reviewOnly);
 $('scope').addEventListener('change',()=>{if(reviewReady){defaultReviewSelection();renderReview();say('อัปเดตชุดตัวเลือกตามโหมดแล้ว · สามารถติ๊กเพิ่มหรือยกเลิกก่อนกดเริ่ม');}});
 $('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดหลังบรรทัดปัจจุบัน (ไม่สามารถตัด ONNX ระหว่าง inference ได้)');});
+$('layout-headers').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;say('เปลี่ยนตัวเลือกแยกแถวชื่อแล้ว · กดตรวจทั้งภาพอีกครั้ง');});
 $('photo').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
 $('crop').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
 $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
