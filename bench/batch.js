@@ -1,4 +1,5 @@
-import {MAX_QUEUE_IMAGES,moveQueueItem,runImageQueue,formatQueueTranscript} from './image-queue.mjs?v=e1';
+import {MAX_QUEUE_IMAGES,moveQueueItem,runImageQueue,formatQueueTranscript} from './image-queue.mjs?v=e2';
+import {captureQueueEvidence,mergeQueueRecords} from './queue-merge.mjs?v=e2';
 import {linkReplyRegions} from './reply-identity.mjs?v=d5d';
 import {refineEdgeRows} from './d5d-layout.mjs?v=d5e';
 import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5e';
@@ -16,7 +17,7 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d5e';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=e2';
 import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d4';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
@@ -54,7 +55,8 @@ function releaseImageState(){
 function showQueueTranscript(force=false){
  if(transcriptEdited&&!force)return;
  $('transcript-text').value=formatQueueTranscript(queueResults);
- $('transcript-warning').textContent='E.1 · แยกผลตามภาพ ยังไม่ลบข้อความซ้อนหรือเชื่อมชื่อผู้พูดข้ามภาพ · ตรวจลำดับและแก้ข้อความก่อนคัดลอก';
+ const m=queueResults.some(r=>r.records)?mergeQueueRecords(queueResults):null;
+ $('transcript-warning').textContent=m?`E.2 · ยืนยันรอยต่อ ${m.overlaps} · รวมข้อความซ้อน ${m.mergedMessages} · กู้บรรทัด ${m.recoveredLines} · เชื่อมชื่อ ${m.nameLinks} · รอยต่อยังไม่ยืนยัน ${m.unresolved} · โปรดตรวจร่างก่อนคัดลอก`:'E.2 · ยังไม่มีหลักฐานสำหรับรวมภาพ · ตรวจร่างก่อนคัดลอก';
  $('transcript-panel').hidden=false;transcriptEdited=false;
 }
 async function runQueue(){
@@ -73,7 +75,7 @@ async function runQueue(){
   queueActive=false;queueIndex=-1;toggleBusy(false);$('transcript-text').readOnly=false;$('transcript-refresh').disabled=false;$('copy-transcript').disabled=false;
   showQueueTranscript(true);renderQueue();
   const done=queueResults.filter(r=>r.state==='done').length,partial=queueResults.filter(r=>r.state==='partial').length,failed=queueResults.filter(r=>r.state==='failed').length;
-  say(`อ่านเสร็จ ${done}/${queueFiles.length} ภาพ · ผลบางส่วน ${partial} · ไม่สำเร็จ ${failed} · ${stopRequested?'หยุดตามคำขอ':'ตรวจสถานะแต่ละภาพได้ด้านบน'} · ยังไม่รวมข้อความซ้อน`);
+  say(`อ่านเสร็จ ${done}/${queueFiles.length} ภาพ · ผลบางส่วน ${partial} · ไม่สำเร็จ ${failed} · ${stopRequested?'หยุดตามคำขอ':'ตรวจสถานะแต่ละภาพได้ด้านบน'} · ตรวจรอยต่อในร่างบทสนทนา`);
  }
 }
 function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;renderQueue();}
@@ -391,6 +393,7 @@ function refreshTranscript(force=false){
  ].join(' · ');
  $('transcript-panel').hidden=false;
  transcriptEdited=false;
+ return {result,rows:resolved};
 }
 function refreshStats(){
  const {done,identical,different,failures}=counts();const stats=$('stats');stats.replaceChildren(
@@ -510,10 +513,11 @@ async function runImage(file,inQueue){
   const c=counts();
   if(inQueue){
    if(wasCancelled||stopRequested)return {state:'cancelled',diagnostic:safeReport(modelWasLoaded?0:modelLoadMs)};
-   refreshTranscript(true);
+   const assembled=refreshTranscript(true);
    const text=$('transcript-text').value;$('transcript-panel').hidden=true;
    const state=!text.trim()?'failed':(c.failures||c.done.length!==items.length||ocrLines.length>60||$('scope').value!=='all')?'partial':'done';
-   return {state,text,diagnostic:safeReport(modelWasLoaded?0:modelLoadMs)};
+   const records=state==='done'&&assembled?captureQueueEvidence(assembled.result,assembled.rows,imagePixels,imageCanvas.width,imageCanvas.height,textColumn):null;
+   return {state,text,records,diagnostic:safeReport(modelWasLoaded?0:modelLoadMs)};
   }
   say(wasCancelled?`หยุดแล้ว · ร่างอาจไม่ครบ (${c.done.length}/${items.length} กรอบ)`:`✓ อ่านเสร็จ ${c.done.length}/${items.length} กรอบ · ตรวจร่างบทสนทนาด้านล่างก่อนคัดลอก`);
  }catch(err){
@@ -539,7 +543,7 @@ $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
 $('transcript-text').addEventListener('input',()=>{transcriptEdited=true;});
 $('transcript-refresh').addEventListener('click',()=>{transcriptEdited=false;if(queueFiles.length>1)showQueueTranscript(true);else refreshTranscript(true);});
-$('queue-copy-safe').addEventListener('click',()=>copyOrShow(queueResults.map((r,i)=>`Image ${i+1}: ${r.state}\n${r.diagnostic}`).join('\n\n')));
+$('queue-copy-safe').addEventListener('click',()=>{const {text,...stats}=mergeQueueRecords(queueResults);copyOrShow('E.2 merge counts: '+JSON.stringify(stats)+'\n\n'+queueResults.map((r,i)=>`Image ${i+1}: ${r.state}\n${r.diagnostic}`).join('\n\n'));});
 renderQueue();
 $('copy-transcript').addEventListener('click',()=>copyOrShow($('transcript-text').value));
 window.addEventListener('pagehide',()=>{try{worker?.terminate();onnx?.release();}catch(_){}});
