@@ -5,7 +5,7 @@
  */
 import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 export {dateFromOCR};
-import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d5d';
+import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d5e';
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
@@ -51,7 +51,7 @@ function bodyText(row,kind){
   return substantive(body)?'@'+row.replyNameResolution.speaker+' '+body:scrub(row.originalText??row.text);
  }
  if(kind==='reply'&&(row.bitmap||row.textLeft)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
- if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
+ if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c)){const chosen=selectBilingualText(c,base,row.originalText??row.text??base,{shortFragment:kind==='fragment',reconcileMarks:kind!=='mixed'});return row.edgeTextTop!=null?chosen.replace(/^[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]+\s*/u,''):chosen;}
  return base;
 }
 /**
@@ -91,7 +91,7 @@ export function assembleTextTranscript(rows=[]){
    if(head){
      if(r.clippedName){head={...head,speaker:null};warnings.push('ชื่อผู้พูดถูกตัดขอบภาพ — ไม่เดาชื่อ');}
      flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:Boolean(r.clippedName),lastY:r.bbox.y1};pendingReply=null;
-     const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline):scrub(r.candidate)):head.tail)):head.tail;
+     const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline,{reconcileMarks:false}):scrub(r.candidate)):head.tail)):head.tail;
      const source=r.headerTailBox??(r.bodyBand?{...r.bbox,y0:r.bbox.y0+r.bodyBand.top,y1:r.bbox.y0+r.bodyBand.bottom}:r.bbox);
      if(mixedBody&&substantive(mixedBody)){
        if(!scrub(r.truth)&&hasBodyAlternative(ordered,index,source,mixedBody,bodyText))duplicateCount++;
@@ -109,7 +109,7 @@ export function assembleTextTranscript(rows=[]){
    if(kind==='mixed'){
      flush();warnings.push('พบกรอบชื่อ+เนื้อหาที่แยกเวลาไม่ชัด จึงไม่เดาผู้พูด');
      current={speaker:null,time:null,date,reply:pendingReply,parts:[],uncertain:true,lastY:r.bbox.y1};pendingReply=null;
-     const mixedText=scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline):scrub(r.candidate)):'');
+     const mixedText=scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline,{reconcileMarks:false}):scrub(r.candidate)):'');
      if(mixedText)pushBody(mixedText,r.bbox);
      continue;
    }

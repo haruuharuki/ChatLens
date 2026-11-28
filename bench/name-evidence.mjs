@@ -1,5 +1,6 @@
 /** Same visible username pixels, not account identity. Local and per image. */
-import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d5d';
+import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d5e';
+import {thaiMarkDominates} from './region-output.mjs?v=d5e';
 const clean=s=>String(s??'').normalize('NFC').replace(/\s+/g,' ').trim();
 const valid=b=>b&&['x0','x1','y0','y1'].every(k=>Number.isInteger(b[k]))&&b.x1>b.x0&&b.y1>b.y0;
 export function identicalNamePixels(a,b,p,w,h){
@@ -27,6 +28,17 @@ function observations(r,head){
   const h=parseHeader(raw,r.kind);if(h&&h.time===head.time&&(!h.date||!head.date||h.date===head.date)&&!h.tail)add(h.speaker,source);
  }
  for(const [raw,source] of [[e.native,'native'],[e.scaled,'scaled']])if(!parseHeader(raw,'header'))add(raw,source);
+ // For a visually isolated badge, compare a complete observed prefix of the
+ // timed row against the isolated name. Do not strip arbitrary final words.
+ // A whitespace boundary AND mark-only agreement are mandatory.
+ if(e.badge&&nameOK(clean(e.native))&&!parseHeader(e.native,'header')){
+  for(const [raw,source] of [[e.full,'full-prefix'],[e.nearby,'nearby-prefix'],[r.baseline,'baseline-prefix']]){
+   const h=parseHeader(raw,r.kind);if(!h||h.time!==head.time||h.date!==head.date||h.tail)continue;
+   const words=clean(h.speaker).split(' ');for(let i=1;i<=words.length;i++){
+    const n=words.slice(0,i).join(' ');if(thaiMarkDominates(n,clean(e.native)))add(n,source);
+   }
+  }
+ }
  return out;
 }
 /** Keep independent readings; never elevate a scaled crop just because the box is valid. */
@@ -35,11 +47,21 @@ function localChoice(row,head,obs){
  const full=obs.filter(x=>['full','nearby','baseline'].includes(x.source));
  const tight=obs.filter(x=>['native','scaled'].includes(x.source));
  const native=by('native'),scaled=by('scaled');
+ const richer=[...new Set(obs.map(o=>o.name))].filter(n=>(thaiMarkDominates(n,head.speaker)||native&&thaiMarkDominates(n,native)&&prefix(native)===prefix(head.speaker))&&obs.filter(o=>o.name===n).length>=2);
+ if(richer.length===1)return {speaker:richer[0],reason:'corroborated-thai-marks',uncertain:true};
  if(latinName(head.speaker)&&full.some(f=>f.name===head.speaker)&&!tight.some(t=>t.name===head.speaker))return {speaker:head.speaker,reason:'preserve-observed-bilingual',uncertain:true};
  // A complete isolated name agreed by both crops can remove a leading
  // avatar artifact, but never discard a structured numeric prefix.
  if(native&&native===scaled&&!prefix(head.speaker)&&full.some(f=>f.name===native||f.name.endsWith(' '+native))&&
     full.every(f=>!prefix(f.name)||prefix(f.name)===prefix(native)))return {speaker:native,reason:'isolated-name-agreement',uncertain:full.some(f=>f.name!==native)};
+ // A structured native name can be corroborated by independent full rows
+ // even if OCR drops a space next to the separator or reads a tiny numeric
+ // avatar artifact before a bracket. Preserve the isolated observed spelling.
+ const pipeKey=s=>clean(s).replace(/\s*\|\s*/g,'|');
+ if(native&&prefix(native)&&/^[[(]/.test(native)){
+  const key=pipeKey(native),support=full.filter(f=>pipeKey(f.name)===key||pipeKey(f.name.replace(/^\d{1,2}\s+(?=[[(]\d)/u,''))===key);
+  if(support.length>=2&&!full.some(f=>prefix(f.name)&&prefix(f.name)!==prefix(native)))return {speaker:native,reason:'structured-native-corroborated',uncertain:scaled!==native};
+ }
  const backed=tight.filter(t=>full.some(f=>f.name===t.name||f.name.startsWith(t.name+' ')));
  if(backed.length&&backed.every(t=>t.name===backed[0].name))return {speaker:backed[0].name,reason:'name-corroborated',uncertain:false};
  // A geometrically detected badge is not a license to remove arbitrary words.
@@ -95,6 +117,19 @@ export function resolveNameEvidence(rows,p,w,h){
   }
   // Reuse an observed exact name only when local decisions agree, never fill
   // a dissenting record merely because it has the same color or width.
+  // Same pixels plus a unique complete name corroborated by a native crop
+  // and full-row evidence across two occurrences can settle a disagreement.
+  // Cached crop reads count only once; full rows are separate observations.
+  const supported=[...new Set(all.map(o=>o.name))].filter(n=>
+   group.some(r=>r.obs.some(o=>o.source==='native'&&o.name===n))&&
+   group.filter(r=>r.obs.some(o=>['full','nearby','baseline'].includes(o.source)&&o.name===n)).length>=2);
+  if(supported.length===1&&group.some(r=>r.choice.speaker!==supported[0])&&
+     !all.some(o=>prefix(o.name)&&prefix(supported[0])&&prefix(o.name)!==prefix(supported[0]))){
+   for(const r of group)r.choice={speaker:supported[0],reason:'identical-pixels-corroborated-name',uncertain:true};continue;
+  }
+  // A richer mark-only spelling must be observed in separate full rows.
+  const marked=[...new Set(all.map(o=>o.name))].filter(n=>group.every(r=>r.choice.speaker===n||thaiMarkDominates(n,r.choice.speaker))&&group.filter(r=>r.obs.some(o=>['full','nearby','baseline','full-prefix','nearby-prefix','baseline-prefix'].includes(o.source)&&o.name===n)).length>=2);
+  if(marked.length===1&&group.some(r=>r.choice.speaker!==marked[0])){for(const r of group)r.choice={speaker:marked[0],reason:'identical-pixels-thai-marks',uncertain:true};continue;}
   const same=group.every(r=>r.choice.speaker===group[0].choice.speaker);
   if(same)for(const r of group)r.choice={...r.choice,reason:'identical-pixels-agree'};
  }
