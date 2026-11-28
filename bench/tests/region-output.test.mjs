@@ -71,3 +71,29 @@ test('ambiguous wider body with distinct text is not silently removed',()=>{
  const b=r('body','อีกข้อความที่มีส่วนต่อท้าย',50,40,400,60);
  assert.equal(body(a,b),'ข้อความสั้น\nอีกข้อความที่มีส่วนต่อท้าย');
 });
+
+test('same region may retain an observed Thai mark when another engine corroborates it',()=>{
+ const a=r('body','ดมากครับ',50,40,300,60,{candidate:'ดมากครับ',baseline:'ดมากครับ'});
+ const b=r('body','ดีมากคับ',50,41,300,61,{splitBody:true,candidate:'ดีมากครับ',baseline:'ดีมากคับ'});
+ assert.equal(body(a,b),'ดีมากครับ');
+ assert.equal(body(a,{...b,baseline:'ดมากคับ'}),'ดมากครับ');
+ assert.equal(body({...a,truth:'แก้เอง'},b),'แก้เอง');
+});
+test('garbled preferred reading can use other observed text to corroborate geometry',()=>{
+ const a=r('body','7 ทดลองอ่าน',50,40,350,60,{splitBody:true,candidate:'ฟ้ ผผดลองอ่าน',baseline:'7 ทดลองอ่าน'});
+ const b=r('body','ทดลองอ่าน',75,40,220,60,{candidate:'ทดลองอ่าน'});
+ assert.equal(body(a,b),'ทดลองอ่าน');
+});
+test('same-timestamp observed full header can recover Latin name or clean leading noise',()=>{
+ const h=r('header','[01] เอบีซี | นักทดสอบ 9:31 AM',50,10,350,30,{layoutHeader:true,baseline:'[01] ABC-XYZ | นักทดสอบ 9:31 AM'});
+ const b=r('body','ข้อความ',50,40,220,60);
+ assert.equal(assembleTextTranscript([h,b]).entries[0].speaker,'[01] ABC-XYZ | นักทดสอบ');
+ assert.equal(assembleTextTranscript([{...h,baseline:'[01] ABC-XYZ | นักทดสอบ 9:32 AM'},b]).entries[0].speaker,'[01] เอบีซี | นักทดสอบ');
+ assert.equal(assembleTextTranscript([{...h,text:'9 Multiple 9:31 AM',baseline:'Multiple 9:31 AM'},b]).entries[0].speaker,'Multiple');
+});
+test('edge Latin noise does not force fallback, and unsupported 2-letter fragment is not exported',()=>{
+ assert.equal(selectBilingualText('อ่านข้อความ','อ่านข้อความ ZZ','อ่านข้อความ ZZ'),'อ่านข้อความ');
+ const good=r('fragment','OK',50,40,90,60,{candidate:'OK',baseline:'OK'});
+ const junk=r('fragment','ZZ',50,70,90,90,{candidate:'',baseline:'ZZ'});
+ assert.equal(body(good,junk),'OK');
+});
