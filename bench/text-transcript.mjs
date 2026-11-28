@@ -5,7 +5,7 @@
  */
 import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 export {dateFromOCR};
-import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d4';
+import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d5d';
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
@@ -45,6 +45,11 @@ function bodyText(row,kind){
  }
 
  // Single-line OpenThai on a multi-line mixed raw block: crop was body-only.
+ if(kind==='reply'&&row.replyIdentity){
+  if(!row.replyBodyRead||!row.replyNameResolution?.speaker)return scrub(row.originalText??row.text);
+  const body=(!row.error&&c&&substantive(c))?selectBilingualText(c,base,base):base;
+  return substantive(body)?'@'+row.replyNameResolution.speaker+' '+body:scrub(row.originalText??row.text);
+ }
  if(kind==='reply'&&(row.bitmap||row.textLeft)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
  if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
  return base;
@@ -71,7 +76,7 @@ export function assembleTextTranscript(rows=[]){
    const r=ordered[index];
    const kind=r.kind||'fragment';const raw=scrub(r.originalText??r.text??r.rawBaseline??r.baseline);
    if(kind==='graphic'){graphics++;continue;}
-	   if(kind==='covered')continue; // original overlapping OCR header; targeted header replaces it
+	   if(kind==='covered')continue; // original overlapping OCR header or clipped viewport edge
    if(!raw && !r.candidate && !r.truth)continue;
    const parsedDate=dateSeparator(raw);
    if(parsedDate && (kind==='date'||kind==='fragment')){
@@ -84,7 +89,8 @@ export function assembleTextTranscript(rows=[]){
     if(chosen.uncertain&&!warnings.includes('ผลอ่านชื่อไม่ตรงกัน — ตรวจชื่อผู้พูดจากภาพต้นฉบับ'))warnings.push('ผลอ่านชื่อไม่ตรงกัน — ตรวจชื่อผู้พูดจากภาพต้นฉบับ');
    }
    if(head){
-     flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:false,lastY:r.bbox.y1};pendingReply=null;
+     if(r.clippedName){head={...head,speaker:null};warnings.push('ชื่อผู้พูดถูกตัดขอบภาพ — ไม่เดาชื่อ');}
+     flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:Boolean(r.clippedName),lastY:r.bbox.y1};pendingReply=null;
      const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline):scrub(r.candidate)):head.tail)):head.tail;
      const source=r.headerTailBox??(r.bodyBand?{...r.bbox,y0:r.bbox.y0+r.bodyBand.top,y1:r.bbox.y0+r.bodyBand.bottom}:r.bbox);
      if(mixedBody&&substantive(mixedBody)){
@@ -95,6 +101,7 @@ export function assembleTextTranscript(rows=[]){
    }
    if(kind==='reply'){
      const reply=bodyText(r,kind);
+     if(r.replyNameResolution?.uncertain&&r.replyBodyRead&&!warnings.includes('ชื่อใน Reply เชื่อมจากรูปตัวอักษรในภาพเดียวกัน — ยังต้องตรวจสอบ'))warnings.push('ชื่อใน Reply เชื่อมจากรูปตัวอักษรในภาพเดียวกัน — ยังต้องตรวจสอบ');
      // Only preview quotes, not normal mentions, can become reply notes.
      if(reply&&substantive(reply)){if(r.replyContinuation&&pendingReply)pendingReply+='\n'+reply;else pendingReply=reply;}
      continue;
