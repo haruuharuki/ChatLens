@@ -33,7 +33,8 @@ export function conversationCrop(p,w,h){
 }
 function ink(p,w,x,y){const c=rgb(p,w,x,y);return lum(c)>155&&Math.max(...c)-Math.min(...c)<35;}
 /** Highlighted mention has a broad blue/purple dark background, unlike reply preview. */
-function mention(b,p,w,h,column){
+export function hasMentionBackground(b,p,w,h,column){
+ if(!valid(b)||!column||!p||p.length!==w*h*4)return false;
  const H=b.y1-b.y0;const x0=Math.max(0,Math.floor(column.x)),x1=Math.min(w,Math.ceil(b.x1),x0+H*5);
  let n=0,total=0;
  for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y+=2)for(let x=x0;x<x1;x+=2){const [r,g,bl]=rgb(p,w,x,y);total++;if(bl>=45&&bl<=140&&bl>r+12&&bl>g+9&&r<100)n++;}
@@ -91,7 +92,7 @@ export function refineSemanticRows(rows,p,w,h,column){
  const out=rows.map(r=>({...r}));const heights=out.filter(r=>r.kind==='body'&&!r.splitBody&&valid(r.bbox)).map(r=>r.bbox.y1-r.bbox.y0),typical=median(heights);
  for(const r of out){const b=r.bbox;if(!valid(b))continue;const H=b.y1-b.y0;
   if(['fragment','reply'].includes(r.kind)&&controlRegion(b,p,w,h,column)){r.kind='graphic';r.reason='ปุ่มควบคุมหรือ Reaction ที่สงสัย';continue;}
-  if(r.kind==='reply'&&!r.replyContinuation&&mention(b,p,w,h,column)){r.kind='body';r.mention=true;r.reason='Mention ในเนื้อหา ไม่ใช่ Reply';}
+  if(['body','fragment','header','mixed','reply'].includes(r.kind)&&!r.replyContinuation&&hasMentionBackground(b,p,w,h,column)){r.kind='body';r.mention=true;r.layoutHeader=false;r.nameROI=null;r.nameEvidence=null;r.reason='Mention ในเนื้อหา ไม่ใช่หัวข้อความหรือ Reply';}
   else if(r.kind==='reply'&&!r.replyContinuation){const left=replyTextLeft(b,p,w,h,column);if(left!==null)r.textLeft=left;}
 
   if(['body','fragment'].includes(r.kind)){
@@ -110,6 +111,19 @@ export function refineSemanticRows(rows,p,w,h,column){
  for(const r of out){if(!r.splitBody||r.kind!=='body')continue;const b=r.bbox;
   const q=out.find(x=>x.mention&&span(b,x.bbox)>=.75*Math.min(b.y1-b.y0,x.bbox.y1-x.bbox.y0)&&x.bbox.x1>=b.x1-12);
   if(q){r.kind='covered';r.reason='กรอบซ้ำของ Mention';}
+ }
+ // A clipped recovery sliver is not a second spoken line. Compare its actual
+ // text-side ink with one taller overlapping row; preserve the raw candidate.
+ for(const r of out){
+  if(!r.splitBody||r.kind!=='body'||r.mention||!valid(r.bbox))continue;
+  const b=r.bbox,H=b.y1-b.y0;
+  const candidates=out.filter(q=>q!==r&&['body','fragment'].includes(q.kind)&&!q.mention&&valid(q.bbox)&&q.bbox.y1-q.bbox.y0>=H*1.12&&span(b,q.bbox)>=H*.55&&q.bbox.x0<=column.x+H*.5&&q.bbox.x1>=column.x+4);
+  if(candidates.length!==1)continue;
+  const q=candidates[0].bbox;let inside=0,extra=0;
+  for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,Math.ceil(b.y1));y++)for(let x=Math.max(0,Math.floor(column.x-4));x<Math.min(w,Math.ceil(b.x1));x++)if(ink(p,w,x,y)){
+   if(x<q.x0-4||x>=q.x1+4||y<q.y0-4||y>=q.y1+4)extra++;else inside++;
+  }
+  if(inside>=8&&extra<4){r.kind='covered';r.reason='กรอบย่อยซ้อนข้อความจริง (ตรวจสอบได้)';}
  }
  // Preserve clear paragraph spacing; no effect on distinct message headers.
  let prev=null;for(const r of out){if(['header','mixed','date','reply'].includes(r.kind)){prev=null;continue;}if(!['body','fragment'].includes(r.kind)||!valid(r.bbox))continue;
