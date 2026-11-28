@@ -8,7 +8,7 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d2b';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d2b1';
 import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d2b';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
@@ -307,7 +307,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens Phase C — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,...items.map(item=>`\n# Line ${item.index+1}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.2b.1 — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}

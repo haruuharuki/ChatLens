@@ -18,7 +18,11 @@ export function selectBilingualText(candidate,baseline,original=baseline){
  const c=String(candidate??'').trim(),b=String(baseline??'').trim();
  if(!c)return b;if(!b)return c;
  const bt=latin(b),ct=latin(c),ot=latin(original);
- const missing=bt.filter(t=>!ct.includes(t)&&ot.includes(t));
+ // Edge-only Latin noise is common when an avatar/emoji is in a Thai crop.
+ // Preserve mixed tokens only when they are between Thai text, or the other
+ // engine already sees Latin as well. Pure English keeps the old rule.
+ const interior=latin(b.match(/[\u0e01-\u0e5b].*[\u0e01-\u0e5b]/u)?.[0]||'');
+ const missing=bt.filter(t=>!ct.includes(t)&&ot.includes(t)&&(!thai(b)||ct.length||interior.includes(t)));
  if(!missing.length)return c;
  const tb=thai(b),tc=thai(c);
  if(tb.length>=2&&tc.length>=2&&similarity(tb,tc)>=.65)return b;
@@ -35,6 +39,44 @@ export function sameBodyRegion(a,b,ta,tb){
  // A much wider box may include extra content: demand corroboration before suppressing it.
  return Math.min(aw,bw)>=.72*Math.max(aw,bw)||closeText(ta,tb);
 }
+// Compare observed alternatives only. If the base letters agree exactly,
+// prefer an otherwise identical reading with a missing Thai mark restored
+// ONLY when another OCR reading supports that mark in its local context.
+const thaiMark=/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/u;
+function markUnits(text){
+ const units=[];
+ for(const ch of norm(text)){
+  if(thaiMark.test(ch)&&units.length)units.at(-1).marks+=ch;
+  else units.push({base:ch,marks:''});
+ }
+ return units;
+}
+function markPreference(a,b,readText){
+ const x=markUnits(readText(a,a.kind||'fragment')),y=markUnits(readText(b,b.kind||'fragment'));
+ if(x.length<4||x.length!==y.length||x.some((u,i)=>u.base!==y[i].base))return 0;
+ function supports(r,units,i){
+  const from=Math.max(0,i-2),to=Math.min(units.length,i+3);
+  const token=units.slice(from,to).map(u=>u.base+u.marks).join('');
+  // A different engine must have observed the same local glyph sequence.
+  return to-from>=3 && !r.error && norm(r.candidate)===norm(readText(r,r.kind||'fragment')) && norm(r.baseline).includes(token);
+ }
+ function dominates(r,u,v){
+  let added=0;
+  for(let i=0;i<u.length;i++){
+   if(u[i].marks===v[i].marks)continue;
+   if(v[i].marks||!u[i].marks||!supports(r,u,i))return false;
+   added++;
+  }
+  return added>0;
+ }
+ if(dominates(a,x,y))return 1;if(dominates(b,y,x))return -1;return 0;
+}
+function observations(r,readText){return [readText(r,r.kind||'fragment'),r.baseline,r.originalText??r.text].filter(t=>norm(t));}
+function sameObservedRegion(a,b,readText){
+ // Geometry is still mandatory; a garbled preferred reading must not defeat
+ // corroboration from the other observed reading of the same two regions.
+ return observations(a,readText).some(x=>observations(b,readText).some(y=>sameBodyRegion(region(a),region(b),x,y)));
+}
 const bodyKind=r=>['body','fragment'].includes(r.kind||'fragment');
 const region=r=>r.sourceBodyBox||r.bbox;
 /** Leave source rows intact for Benchmark; only select the transcript's rows. */
@@ -44,10 +86,14 @@ export function resolveBodyRows(rows,readText){
  const flush=()=>{
   const selected=[];
   for(const r of group){const t=readText(r,r.kind||'fragment');if(!norm(t)){selected.push(r);continue;}
-   const matches=selected.map((p,i)=>({p,i})).filter(({p})=>norm(readText(p,p.kind||'fragment'))&&sameBodyRegion(region(p),region(r),readText(p,p.kind||'fragment'),t));
+   const matches=selected.map((p,i)=>({p,i})).filter(({p})=>norm(readText(p,p.kind||'fragment'))&&sameObservedRegion(p,r,readText));
    // Never bridge two separate physical rows through an ambiguous large box.
    if(matches.length!==1){selected.push(r);continue;}
-   const {p,i}=matches[0];if(rank(r)>rank(p))selected[i]=r;suppressed++;
+   const {p,i}=matches[0];
+   const manualR=Boolean(String(r.truth??'').trim()),manualP=Boolean(String(p.truth??'').trim());
+   const mark=(!manualR&&!manualP)?markPreference(r,p,readText):0;
+   if(mark>0||(mark===0&&rank(r)>rank(p)))selected[i]=r;
+   suppressed++;
   }
   keep.push(...selected.sort((a,b)=>a.bbox.y0-b.bbox.y0||a.bbox.x0-b.bbox.x0));group.length=0;
  };

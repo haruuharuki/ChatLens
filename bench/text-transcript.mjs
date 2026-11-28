@@ -5,7 +5,7 @@
  */
 import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 export {dateFromOCR};
-import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d2b';
+import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d2b1';
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
@@ -18,6 +18,19 @@ export function parseHeader(text,kind){
  if(/^@/.test(prefix)||prefix.length<2||prefix.length>100||!/[\p{L}]/u.test(prefix)||prefix.split(/\s+/).length>12)return null;
  const speaker=prefix.replace(/\s*(?:\[(?:TTO|DAV|APP|MEOW)\]|(?:TTO|DAV|APP|MEOW))\s*$/i,'').trim();
  return {speaker:speaker||prefix,time:match.time,date:match.date,tail:s.slice(match.end).trim()};
+}
+// The diagnostic full-row re-read is a real observed alternative, not a
+// guessed name. Use it only for the same parsed date/time, same Thai suffix
+// and an observed Latin name that the earlier isolated crop lost; or when
+// it exactly removes a leading OCR artifact from a structured username.
+export function chooseHeaderReading(row,raw){
+ const old=parseHeader(raw,row.kind),next=parseHeader(row.baseline,row.kind);
+ if(!row.layoutHeader||row.kind!=='header'||!old||!next||old.time!==next.time||old.date!==next.date||next.tail||old.tail)return old;
+ const a=old.speaker,b=next.speaker;
+ const mixed=b.match(/([A-Za-z]{2,}(?:[-_][A-Za-z]{2,})*)\s*\|\s*([\u0e01-\u0e5b][^|]*)$/u);
+ if(mixed&&a.split('|').at(-1).trim()===mixed[2].trim()&&!a.toLowerCase().includes(mixed[1].toLowerCase()))return next;
+ if(a.endsWith(b)&&a!==b&&/^(?:\[(?:[0-9]{1,2}|staff)\]|multiple$)/i.test(b)&&/^[^\p{L}]{1,5}$/u.test(a.slice(0,-b.length)))return next;
+ return old;
 }
 function substantive(t){const s=scrub(t);return !!s&&s.length<=1200&&!EMPTY_ART.test(s)&&(/[\p{L}\p{N}]/u.test(s));}
 function isUI(s){return /^(?:#\s*[A-Za-z][\w-]*|\d{1,3}\s+Online\b|Message\s*#|\b(?:\d{1,2}:\d{2})\b\s*[5G]*)$/i.test(s);}
@@ -55,7 +68,7 @@ export function assembleTextTranscript(rows=[]){
    if(parsedDate && (kind==='date'||kind==='fragment')){
      flush();if(date!==parsedDate)output.push({dateMarker:parsedDate});date=parsedDate;pendingReply=null;continue;
    }
-   const head=parseHeader(raw,kind);
+   const head=chooseHeaderReading(r,raw);
    if(head){
      flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:false,lastY:r.bbox.y1};pendingReply=null;
      const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline):scrub(r.candidate)):head.tail)):head.tail;
@@ -88,7 +101,7 @@ export function assembleTextTranscript(rows=[]){
    if(kind==='body'||kind==='mixed'||kind==='fragment'){
      const text=bodyText(r,kind);
      if(!text||isUI(text))continue;
-     if(kind==='fragment' && !THAI.test(text) && !/[A-Za-z]{3,}/.test(text) && !(/^[A-Za-z]{2}$/u.test(text)&&scrub(r.baseline??r.text).toLowerCase()===text.toLowerCase()))continue;
+     if(kind==='fragment' && !THAI.test(text) && !/[A-Za-z]{3,}/.test(text) && !(/^[A-Za-z]{2}$/u.test(text)&&(scrub(r.truth).toLowerCase()===text.toLowerCase()||(!r.error&&scrub(r.candidate).toLowerCase()===text.toLowerCase()&&scrub(r.baseline??r.text).toLowerCase()===text.toLowerCase()))))continue;
      pushBody(text,r.bbox);
    }
  }
