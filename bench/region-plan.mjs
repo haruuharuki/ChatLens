@@ -103,7 +103,7 @@ export function isolateNameBox(box,p,w,h,column){
  // Require a noncolored region after name, usually timestamp or badge; do
  // not claim a complete name when color reaches the right ROI boundary.
  if(last+6>=end)return null;
- return {x0:Math.max(0,Math.min(start,first-5)),x1:Math.min(end,chipStart>=0?chipStart:last+6),y0:Math.max(0,Math.floor(box.y0)-2),y1:Math.min(h,Math.ceil(box.y1)+2)};
+ return {x0:Math.max(0,Math.min(start,first-5)),x1:Math.min(end,chipStart>=0?chipStart:last+6),y0:Math.max(0,Math.floor(box.y0)-2),y1:Math.min(h,Math.ceil(box.y1)+2),badge:chipStart>=0};
 }
 
 // If two OCR readings disagree beyond spacing/punctuation, the saved region

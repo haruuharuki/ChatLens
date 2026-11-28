@@ -38,6 +38,7 @@ function bodyText(row,kind){
  if(typeof row.truth==='string'&&row.truth.trim())return scrub(row.truth);
  const c=scrub(row.candidate),base=scrub(row.baseline??row.text);
  // Single-line OpenThai on a multi-line mixed raw block: crop was body-only.
+ if(kind==='reply'&&row.bitmap&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
  if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
  return base;
 }
@@ -68,7 +69,12 @@ export function assembleTextTranscript(rows=[]){
    if(parsedDate && (kind==='date'||kind==='fragment')){
      flush();if(date!==parsedDate)output.push({dateMarker:parsedDate});date=parsedDate;pendingReply=null;continue;
    }
-   const head=chooseHeaderReading(r,raw);
+   let head=chooseHeaderReading(r,raw);
+   const chosen=r.nameResolution;
+   if(head&&chosen&&chosen.time===head.time&&chosen.date===head.date){
+    head={...head,speaker:chosen.speaker};
+    if(chosen.uncertain&&!warnings.includes('ผลอ่านชื่อไม่ตรงกัน — ตรวจชื่อผู้พูดจากภาพต้นฉบับ'))warnings.push('ผลอ่านชื่อไม่ตรงกัน — ตรวจชื่อผู้พูดจากภาพต้นฉบับ');
+   }
    if(head){
      flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:false,lastY:r.bbox.y1};pendingReply=null;
      const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline):scrub(r.candidate)):head.tail)):head.tail;

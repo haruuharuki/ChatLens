@@ -1,4 +1,6 @@
-import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d2c3';
+import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d3abc';
+import {trailingBitmap} from './graphic-edge.mjs?v=d3abc';
+import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d3abc';
 import {inferTextColumn,safeTextLeft,allowVerticalBand} from './smart-region.mjs?v=d2c12';
 import {benchmarkCropRect} from './safe-crop.mjs?v=d2a';
 import {extractOCRLines} from '../lib/discord-structure.mjs';
@@ -10,8 +12,8 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d2c3';
-import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d2c3';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d3abc';
+import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d3abc';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const $=id=>document.getElementById(id);
@@ -20,7 +22,7 @@ let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null
 let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
 let cropApplied=false,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
-let transcriptEdited=false, textColumn=null;
+let transcriptEdited=false, textColumn=null, lastNameResolutions=[];
 function say(text){$('status').textContent=text;}
 function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
@@ -46,7 +48,7 @@ async function getWorker(){
 async function detectLines(file){
  if(imageCanvas&&scannedFile===file&&ocrLines.length)return;
  stage='tesseract';say('กำลังอ่านภาพครั้งเดียวด้วย Tesseract เพื่อหาบรรทัดและตำแหน่ง…');
- imageCanvas=setImageCanvas(await loadImage(file));scannedFile=file;textColumn=null;
+ imageCanvas=setImageCanvas(await loadImage(file));scannedFile=file;textColumn=null;lastNameResolutions=[];
  const w=await getWorker();const begin=performance.now();
  const out=await w.recognize(imageCanvas,{}, {text:true,blocks:true});
  tesseractMs=Math.round(performance.now()-begin);
@@ -71,7 +73,7 @@ async function detectLines(file){
   const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height,{leftFraction:cropApplied?.025:.07}):[];
   if(bands.length){
    const original=ocrLines;
-   const accepted=[],headers=[];
+   const accepted=[],headers=[],nameCache=[];
    for(const band of bands){
     const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
     const overlaps=original.filter(l=>Math.min(l.bbox.y1,band.y1)-Math.max(l.bbox.y0,band.y0)>=Math.min(12,(l.bbox.y1-l.bbox.y0)*.35));
@@ -83,11 +85,14 @@ async function detectLines(file){
     if(!nearby&&!parseDiscordTimestamp(reread))continue;
     const nameBox={...headerBox,x1:Math.min(headerBox.x1,Math.max(headerBox.x0+24,band.nameEnd+12))};
     const tightName=isolateNameBox(headerBox,pixels,imageCanvas.width,imageCanvas.height,textColumn);
-    const nameOnly=await rereadRegion({bbox:tightName||nameBox},'header',tightName?2:1);
+    const cached=tightName&&nameCache.find(n=>identicalNamePixels(n.box,tightName,pixels,imageCanvas.width,imageCanvas.height));
+    const nameOnly=cached?cached.scaled:await rereadRegion({bbox:tightName||nameBox},'header',tightName?2:1);
+    const native=cached?cached.native:tightName?await rereadRegion({bbox:tightName},'header',1):'';
+    if(tightName&&!cached)nameCache.push({box:tightName,scaled:nameOnly,native});
     const {text,usedNameOnly}=combineRecognizedHeader({full:reread,nameOnly,nearby,trustedNameGeometry:Boolean(tightName)});
     if(!parseHeader(text,'header'))continue;
     accepted.push(band);
-    headers.push({text,bbox:headerBox,headerTailBox:text===nearby?nearbyLine?.bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านชื่อและเวลา':'ตรวจแถวชื่อจากตำแหน่งภาพ (ยังต้องตรวจชื่อ)',layoutHeader:true,nameROI:tightName||nameBox});
+    headers.push({text,bbox:headerBox,headerTailBox:text===nearby?nearbyLine?.bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านชื่อและเวลา':'ตรวจแถวชื่อจากตำแหน่งภาพ (ยังต้องตรวจชื่อ)',layoutHeader:true,nameROI:tightName||nameBox,nameEvidence:tightName?{full:reread,nearby,native,scaled:nameOnly,badge:tightName.badge}:null});
    }
    const separation=splitBoxesAtHeaders(original,accepted,imageCanvas.width);
    const improved=[...headers];
@@ -113,8 +118,10 @@ async function detectLines(file){
    const top={...l.bbox,y1:Math.min(l.bbox.y1,l.bbox.y0+l.bodyBand.top+8)};
    const nameROI=isolateNameBox(top,pixels,imageCanvas.width,imageCanvas.height,textColumn);if(!nameROI)continue;
    const nameOnly=await rereadRegion({bbox:nameROI},'header',2);
+    const native=await rereadRegion({bbox:nameROI},'header',1);
+    const full=l.text;
    const combined=combineRecognizedHeader({full:l.text,nameOnly,nearby:l.text,trustedNameGeometry:true});
-   if(parseHeader(combined.text,'mixed')){l.text=combined.text;l.nameROI=nameROI;}
+   if(parseHeader(combined.text,'mixed')){l.text=combined.text;l.nameROI=nameROI;l.nameEvidence={full,nearby:full,native,scaled:nameOnly,badge:nameROI.badge};}
   }
 }
 /** Targeted second pass: geometry is known; never include pixels outside it. */
@@ -196,17 +203,19 @@ function preparedLineCanvas(line){
   extendTextRight(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget):null;
  const safeLeft=geometry&&line.kind==='body'?safeTextLeft(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget,textColumn):null;
  const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX,safeLeft??0),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY);
- const x1=Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(bodyTarget.y1)+padY);
+ const bitmap=geometry&&['body','reply'].includes(line.kind)?trailingBitmap({...bodyTarget,x1:Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1))},imagePixels,imageCanvas.width,imageCanvas.height,textColumn):null;
+ const x1=Math.min(imageCanvas.width,bitmap?.cutX??Math.ceil(expansion||bodyTarget.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(bodyTarget.y1)+padY);
  const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
  // For headers, image-only regions and ambiguous fragments, show RAW pixels;
  // don't pretend that the image-cleanup heuristics understand their meaning.
+ if(line.kind==='reply'&&bitmap)return {canvas:c,cleaned:true,layout:null,expansion:0,mixedBand:false,graphic:false,bitmap,preparedOrigin:{x:x0,y:y0}};
  if(!focus||!['body','mixed'].includes(line.kind))return maybeTextOnly(c,{cleaned:false,layout:null,expansion:0,mixedBand:false,graphic:line.kind==='graphic'});
  const rgba=ctx.getImageData(0,0,c.width,c.height);
  const layout=geometry?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:null}):null;
  const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:false});
  rgba.data.set(cleaned.pixels);ctx.putImageData(rgba,0,0);
- const metadata={cleaned:true,layout,expansion:expansion?Math.max(0,Math.round(expansion-b.x1)):0,mixedBand:Boolean(mixedBand),smartLeft:safeLeft,preparedOrigin:{x:x0,y:y0}};
+ const metadata={cleaned:true,layout,expansion:expansion?Math.max(0,Math.round(expansion-b.x1)):0,mixedBand:Boolean(mixedBand),smartLeft:safeLeft,bitmap,preparedOrigin:{x:x0,y:y0}};
  if(allowVerticalBand(line.kind,mixedBand)&&cleaned.band&&cleaned.band.bottom>cleaned.band.top){
   const out=document.createElement('canvas');out.width=c.width;out.height=cleaned.band.bottom-cleaned.band.top;
   out.getContext('2d').drawImage(c,0,cleaned.band.top,c.width,out.height,0,0,c.width,out.height);
@@ -303,9 +312,11 @@ function refreshTranscript(force=false){
   return {...line,kind:line.alternateBody&&item?'body':line.kind,originalText:line.text,
    baseline:item?.baseline??line.text,
    candidate:item?.candidate??null,
-   error:Boolean(item?.error),truth:item?.truth??'',bodyOnly:line.kind==='mixed'?Boolean(item?.prepared?.mixedBand):true};
+   error:Boolean(item?.error),bitmap:item?.prepared?.bitmap??null,truth:item?.truth??'',bodyOnly:line.kind==='mixed'?Boolean(item?.prepared?.mixedBand):true};
  });
- const result=assembleTextTranscript(rows);
+ const resolved=resolveNameEvidence(rows,imagePixels,imageCanvas.width,imageCanvas.height);
+ lastNameResolutions=resolved.map(r=>r.nameResolution??null);
+ const result=assembleTextTranscript(resolved);
  $('transcript-text').value=formatTextTranscript(result);
  $('transcript-warning').textContent=[
   'เป็นร่างจากภาพเท่านั้น: OCR อาจอ่านชื่อ เวลา และเนื้อหาผิด และยังไม่ยืนยันว่าเก็บครบทั้งภาพ',
@@ -330,7 +341,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens D.2c.3–4 + D.3a — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; smartLeft: ${item.prepared.smartLeft??"none"}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.3a.1–c — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}
