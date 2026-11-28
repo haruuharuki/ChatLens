@@ -1,3 +1,4 @@
+import {inferTextColumn,safeTextLeft,allowVerticalBand} from './smart-region.mjs?v=d2c12';
 import {benchmarkCropRect} from './safe-crop.mjs?v=d2a';
 import {extractOCRLines} from '../lib/discord-structure.mjs';
 import {evaluateAlignedSamples,evaluateText} from './metrics.mjs';
@@ -18,7 +19,7 @@ let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null
 let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
 let cropApplied=false,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
-let transcriptEdited=false;
+let transcriptEdited=false, textColumn=null;
 function say(text){$('status').textContent=text;}
 function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
@@ -44,7 +45,7 @@ async function getWorker(){
 async function detectLines(file){
  if(imageCanvas&&scannedFile===file&&ocrLines.length)return;
  stage='tesseract';say('กำลังอ่านภาพครั้งเดียวด้วย Tesseract เพื่อหาบรรทัดและตำแหน่ง…');
- imageCanvas=setImageCanvas(await loadImage(file));scannedFile=file;
+ imageCanvas=setImageCanvas(await loadImage(file));scannedFile=file;textColumn=null;
  const w=await getWorker();const begin=performance.now();
  const out=await w.recognize(imageCanvas,{}, {text:true,blocks:true});
  tesseractMs=Math.round(performance.now()-begin);
@@ -61,6 +62,7 @@ async function detectLines(file){
   const heights=ocrLines.map(x=>x.bbox.y1-x.bbox.y0).filter(h=>h>=11&&h<=imageCanvas.height*.08).sort((a,b)=>a-b);
   const typicalHeight=heights.length?heights[Math.floor(heights.length*.5)]:0;
   ocrLines=ocrLines.map(line=>{const audit=auditDetectedRegion(line,pixels,imageCanvas.width,imageCanvas.height,{typicalHeight});return {...line,...audit};});
+  textColumn=cropApplied?inferTextColumn(ocrLines,imageCanvas.width):null;
   // Phase D.1: use author-colored layout as an INDEPENDENT source of candidate
   // headers, not Tesseract's sometimes mixed header+body boxes. Re-OCR narrow
   // horizontal strips before building the transcript. Source image unchanged.
@@ -173,7 +175,8 @@ function preparedLineCanvas(line){
  const bodyTarget=mixedBand?{...b,y0:b.y0+line.bodyBand.top,y1:b.y0+line.bodyBand.bottom}:b;
  const expansion=geometry&&$('extend-text').checked&&['body','mixed'].includes(line.kind)&&imagePixels?
   extendTextRight(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget):null;
- const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY);
+ const safeLeft=geometry&&line.kind==='body'?safeTextLeft(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget,textColumn):null;
+ const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX,safeLeft??0),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY);
  const x1=Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(bodyTarget.y1)+padY);
  const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
@@ -184,11 +187,11 @@ function preparedLineCanvas(line){
  const layout=geometry?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:null}):null;
  const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:false});
  rgba.data.set(cleaned.pixels);ctx.putImageData(rgba,0,0);
- const metadata={cleaned:true,layout,expansion:expansion?Math.max(0,Math.round(expansion-b.x1)):0,mixedBand:Boolean(mixedBand)};
- if(cleaned.band&&cleaned.band.bottom>cleaned.band.top){
+ const metadata={cleaned:true,layout,expansion:expansion?Math.max(0,Math.round(expansion-b.x1)):0,mixedBand:Boolean(mixedBand),smartLeft:safeLeft,preparedOrigin:{x:x0,y:y0}};
+ if(allowVerticalBand(line.kind,mixedBand)&&cleaned.band&&cleaned.band.bottom>cleaned.band.top){
   const out=document.createElement('canvas');out.width=c.width;out.height=cleaned.band.bottom-cleaned.band.top;
   out.getContext('2d').drawImage(c,0,cleaned.band.top,c.width,out.height,0,0,c.width,out.height);
-  return maybeTextOnly(out,metadata);
+  return maybeTextOnly(out,{...metadata,preparedOrigin:{x:x0,y:y0+cleaned.band.top}});
  }
  return maybeTextOnly(c,metadata);
 }
@@ -307,7 +310,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens D.2b.1 — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.2c.1–2 — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; smartLeft: ${item.prepared.smartLeft??"none"}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}
