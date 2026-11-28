@@ -34,7 +34,7 @@ test('split header and body retains actual left edge rather than a second fixed 
  assert.equal(r.split,1);assert.equal(r.lines[0].bbox.x0,18);
 });
 test('browser uses conservative crop and disables both additional left masks',()=>{
- assert.match(js,/const crop=benchmarkCropRect\(/);
+ assert.match(js,/const detected=.*conversationCrop\(/);
  assert.match(js,/anchorX:null/);assert.match(js,/enableAvatarGuard:false/);
  assert.doesNotMatch(js,/bodyTextAnchor/);
  assert.match(js,/leftFraction:cropApplied\?\.025:\.07/);
