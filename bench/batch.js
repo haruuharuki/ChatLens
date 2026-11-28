@@ -1,3 +1,4 @@
+import {MAX_QUEUE_IMAGES,moveQueueItem,runImageQueue,formatQueueTranscript} from './image-queue.mjs?v=e1';
 import {linkReplyRegions} from './reply-identity.mjs?v=d5d';
 import {refineEdgeRows} from './d5d-layout.mjs?v=d5e';
 import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5e';
@@ -26,8 +27,56 @@ let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
 let cropApplied=false,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
 let transcriptEdited=false, textColumn=null, lastNameResolutions=[];
-function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;}
+let queueFiles=[],queueResults=[],queueActive=false,queueIndex=-1;
+function say(text){$('status').textContent=(queueActive&&queueIndex>=0?`ภาพ ${queueIndex+1}/${queueFiles.length} · `:'')+text;}
+function renderQueue(){
+ const multi=queueFiles.length>1,host=$('queue-list');host.replaceChildren();$('queue-panel').hidden=!multi;
+ $('review').disabled=busy||multi;$('start').disabled=busy||!queueFiles.length;
+ $('start').textContent=multi?`อ่าน ${queueFiles.length} ภาพตามลำดับ`:'เริ่มอ่านบทสนทนา';
+ $('queue-copy-safe').disabled=queueActive||!queueResults.some(r=>r.diagnostic);
+ if(!multi)return;
+ const states={pending:'รออ่าน',reading:'กำลังอ่าน',done:'อ่านเสร็จ',partial:'อ่านได้บางส่วน',failed:'อ่านไม่สำเร็จ',cancelled:'หยุดแล้ว'};
+ queueFiles.forEach((file,i)=>{
+  const row=document.createElement('li'),label=document.createElement('span');label.textContent=`${i+1}. ${file.name} · ${states[queueResults[i]?.state||'pending']}`;row.append(label);
+  for(const [delta,caption] of [[-1,'↑'],[1,'↓']]){const b=document.createElement('button');b.type='button';b.className='alt';b.textContent=caption;b.setAttribute('aria-label',`ย้ายภาพ ${i+1} ${delta<0?'ขึ้น':'ลง'}`);b.disabled=busy||i+delta<0||i+delta>=queueFiles.length;b.addEventListener('click',()=>{if(busy)return;if(transcriptEdited&&!window.confirm('สลับภาพจะสร้างร่างใหม่และทับข้อความที่แก้ไขแล้ว ดำเนินการต่อหรือไม่?'))return;queueFiles=moveQueueItem(queueFiles,i,delta);if(queueResults.length){queueResults=moveQueueItem(queueResults,i,delta);showQueueTranscript(true);}renderQueue();});row.append(b);}
+  host.append(row);
+ });
+}
+function clearQueueOutput(){transcriptEdited=false;$('transcript-panel').hidden=true;$('transcript-text').value='';$('queue-progress').value=0;}
+function releaseImageState(){
+ // Drop all image/canvas references before decoding the next screenshot.
+ for(const item of items){const c=item.prepared?.canvas;if(c){c.width=1;c.height=1;}}
+ for(const c of [...$('results').querySelectorAll('canvas'),...$('review-lines').querySelectorAll('canvas')]){c.width=1;c.height=1;}
+ if(imageCanvas){imageCanvas.width=1;imageCanvas.height=1;}
+ items=[];ocrLines=[];imageCanvas=null;imagePixels=null;scannedFile=null;textColumn=null;lastNameResolutions=[];
+ clearReview();$('results').replaceChildren();$('report').hidden=true;$('copy-safe').disabled=true;$('copy-text').disabled=true;
+}
+function showQueueTranscript(force=false){
+ if(transcriptEdited&&!force)return;
+ $('transcript-text').value=formatQueueTranscript(queueResults);
+ $('transcript-warning').textContent='E.1 · แยกผลตามภาพ ยังไม่ลบข้อความซ้อนหรือเชื่อมชื่อผู้พูดข้ามภาพ · ตรวจลำดับและแก้ข้อความก่อนคัดลอก';
+ $('transcript-panel').hidden=false;transcriptEdited=false;
+}
+async function runQueue(){
+ if(busy||queueFiles.length<2)return;
+ if(transcriptEdited&&!window.confirm('เริ่มอ่านใหม่จะทับข้อความที่แก้ไขแล้ว ดำเนินการต่อหรือไม่?'))return;
+ queueActive=true;queueIndex=-1;queueResults=[];stopRequested=false;clearQueueOutput();releaseImageState();toggleBusy(true);
+ $('advanced-results').hidden=true;$('queue-progress').max=queueFiles.length;$('queue-progress').value=0;
+ $('transcript-text').readOnly=true;$('transcript-refresh').disabled=true;$('copy-transcript').disabled=true;
+ try{
+  queueResults=await runImageQueue(queueFiles.slice(),{stopped:()=>stopRequested,changed:(results,index)=>{
+   queueResults=results.slice();queueIndex=index;renderQueue();$('queue-progress').value=results.filter(r=>!['pending','reading'].includes(r.state)).length;
+  },read:async(file)=>{
+   try{return await runImage(file,true);}finally{releaseImageState();await new Promise(resolve=>setTimeout(resolve,0));}
+  }});
+ }finally{
+  queueActive=false;queueIndex=-1;toggleBusy(false);$('transcript-text').readOnly=false;$('transcript-refresh').disabled=false;$('copy-transcript').disabled=false;
+  showQueueTranscript(true);renderQueue();
+  const done=queueResults.filter(r=>r.state==='done').length,partial=queueResults.filter(r=>r.state==='partial').length,failed=queueResults.filter(r=>r.state==='failed').length;
+  say(`อ่านเสร็จ ${done}/${queueFiles.length} ภาพ · ผลบางส่วน ${partial} · ไม่สำเร็จ ${failed} · ${stopRequested?'หยุดตามคำขอ':'ตรวจสถานะแต่ละภาพได้ด้านบน'} · ยังไม่รวมข้อความซ้อน`);
+ }
+}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;renderQueue();}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const source=document.createElement('canvas');const ratio=Math.min(1,1500/image.naturalWidth,3600/image.naturalHeight);
@@ -300,6 +349,7 @@ function buildRow(item){
  item.dom={badge,baseline,candidate,score};return outer;
 }
 function updateRow(item){
+ if(!item.dom)return;
  if(item.error){item.dom.badge.className='tag fail';item.dom.badge.textContent='OpenThai อ่านไม่สำเร็จ';item.dom.candidate.textContent='ไม่สำเร็จ (ไม่นับเป็นผล OCR)';return;}
  if(item.candidate===null)return;
  const runs=compareRuns(item.baseline,item.candidate);
@@ -355,7 +405,7 @@ function refreshStats(){
  $('copy-safe').disabled=!items.length;
  $('copy-text').disabled=!items.length;
 }
-function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
+function safeReport(loadMs=modelLoadMs){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs:loadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
  return ['ChatLens D.5e — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Edge clips: ${ocrLines.filter(l=>l.edgeClipped).length}; Edge strips: ${ocrLines.filter(l=>l.edgeTextTop!=null).length}; UI/graphic: ${ocrLines.filter(l=>l.kind==='graphic').length}; Reply identity links: ${ocrLines.filter(l=>l.replyIdentity).length}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,edgeTextTop:item.line.edgeTextTop??null,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
@@ -402,8 +452,8 @@ function renderReview(){
  $('review-panel').hidden=false;updateReviewSummary();
 }
 async function reviewOnly(){
- if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
- toggleBusy(true);
+ if(busy||queueFiles.length!==1)return;const file=queueFiles[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
+ toggleBusy(true);stopRequested=false;
  try{
   await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('advanced-results').open=true;$('review-panel').open=true;refreshTranscript(true);
   say(`ตรวจพบ ${ocrLines.length} กรอบ (ไม่ใช่จำนวนแชท) · เลือกไว้ ${reviewSelection.size} · เลือกข้อความสั้น/Reply เพิ่มได้ก่อนเริ่มเปรียบเทียบ`);
@@ -411,20 +461,27 @@ async function reviewOnly(){
  finally{toggleBusy(false);}
 }
 async function run(){
- if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
- toggleBusy(true);stopRequested=false;wasCancelled=false;items=[];totalInferenceMs=0;tesseractLineMs=0;
+ if(busy)return;if(queueFiles.length>1)return runQueue();
+ const file=queueFiles[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
+ toggleBusy(true);stopRequested=false;
+ return runImage(file,false);
+}
+async function runImage(file,inQueue){
+ wasCancelled=false;items=[];totalInferenceMs=0;tesseractLineMs=0;if(scannedFile!==file)tesseractMs=0;
+ const modelWasLoaded=Boolean(onnx);
  $('report').hidden=true;$('results').replaceChildren();$('fallback').hidden=true;$('copy-safe').disabled=true;$('progress').value=0;
  try{
   await detectLines(file);
-  if(!reviewReady){defaultReviewSelection();renderReview();}
+  if(stopRequested){wasCancelled=true;return {state:'cancelled'};}
+  if(!reviewReady){defaultReviewSelection();if(!inQueue)renderReview();}
   const selected=[...reviewSelection].sort((a,b)=>a-b).filter(i=>i>=0&&i<ocrLines.length).map(index=>({line:ocrLines[index].alternateBody?{...ocrLines[index],kind:'body'}:ocrLines[index],index}));
-  if(!selected.length){say('ไม่พบกรอบข้อความที่อ่านได้อัตโนมัติ · ตรวจภาพหรือเปิดเครื่องมือทดสอบขั้นสูง');return;}
+  if(!selected.length){say('ไม่พบกรอบข้อความที่อ่านได้อัตโนมัติ · ตรวจภาพหรือเปิดเครื่องมือทดสอบขั้นสูง');return {state:'failed',diagnostic:'No eligible OCR regions'};}
   // Preserve any user-edited transcript while OCR results update.
   const makeItem=({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)});
   items=selected.map(makeItem);
-  $('progress').max=items.length;$('report').hidden=false;
-  for(const item of items){$('results').append(buildRow(item));}refreshStats();
-  if(stopRequested){wasCancelled=true;return;}
+  $('progress').max=items.length;
+  if(!inQueue){$('report').hidden=false;for(const item of items){$('results').append(buildRow(item));}refreshStats();}
+  if(stopRequested){wasCancelled=true;return {state:'cancelled'};}
   await loadOpenThai();stage='inference';
   for(let i=0;i<items.length;i++){
    if(stopRequested){wasCancelled=true;break;}
@@ -444,28 +501,45 @@ async function run(){
    updateRow(item);
    if(!stopRequested&&$('scope').value==='all'&&items.length<60&&needsAlternateReading(item.baseline,item.candidate,item.error)){
     const altIndex=ocrLines.findIndex((l,j)=>alternateMatches(l,item.line)&&!items.some(x=>x.index===j));
-    if(altIndex>=0){const alt=makeItem({line:{...ocrLines[altIndex],kind:'body'},index:altIndex});items.push(alt);$('results').append(buildRow(alt));$('progress').max=items.length;}
+    if(altIndex>=0){const alt=makeItem({line:{...ocrLines[altIndex],kind:'body'},index:altIndex});items.push(alt);if(!inQueue)$('results').append(buildRow(alt));$('progress').max=items.length;}
    }
-   $('progress').value=i+1;refreshStats();
+   $('progress').value=i+1;if(!inQueue)refreshStats();
    // Yield after each line so Safari can paint progress and handle cancel.
    await new Promise(resolve=>setTimeout(resolve,0));
   }
-  const c=counts();say(wasCancelled?`หยุดแล้ว · ร่างอาจไม่ครบ (${c.done.length}/${items.length} กรอบ)`:`✓ อ่านเสร็จ ${c.done.length}/${items.length} กรอบ · ตรวจร่างบทสนทนาด้านล่างก่อนคัดลอก`);
+  const c=counts();
+  if(inQueue){
+   if(wasCancelled||stopRequested)return {state:'cancelled',diagnostic:safeReport(modelWasLoaded?0:modelLoadMs)};
+   refreshTranscript(true);
+   const text=$('transcript-text').value;$('transcript-panel').hidden=true;
+   const state=!text.trim()?'failed':(c.failures||c.done.length!==items.length||ocrLines.length>60||$('scope').value!=='all')?'partial':'done';
+   return {state,text,diagnostic:safeReport(modelWasLoaded?0:modelLoadMs)};
+  }
+  say(wasCancelled?`หยุดแล้ว · ร่างอาจไม่ครบ (${c.done.length}/${items.length} กรอบ)`:`✓ อ่านเสร็จ ${c.done.length}/${items.length} กรอบ · ตรวจร่างบทสนทนาด้านล่างก่อนคัดลอก`);
  }catch(err){
   const safe=diagnosticReport({stage,version:ORT_VERSION,attempts:runtimeAttempts,error:err});
   say('⚠️ การทดลองไม่สำเร็จในขั้น '+stage+'\n'+safe+'\nข้อความแชทไม่ได้ถูกส่งออกจากเครื่อง');
- }finally{toggleBusy(false);refreshStats();if(ocrLines.length)refreshTranscript();}
+  return {state:stopRequested?'cancelled':'failed',diagnostic:`OCR failed at ${stage}`};
+ }finally{if(!inQueue){toggleBusy(false);refreshStats();if(ocrLines.length)refreshTranscript();}}
 }
 $('start').addEventListener('click',run);
 $('review').addEventListener('click',reviewOnly);
 $('scope').addEventListener('change',()=>{if(reviewReady){defaultReviewSelection();renderReview();say('อัปเดตชุดตัวเลือกตามโหมดแล้ว · สามารถติ๊กเพิ่มหรือยกเลิกก่อนกดเริ่ม');}});
-$('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดหลังบรรทัดปัจจุบัน (ไม่สามารถตัด ONNX ระหว่าง inference ได้)');});
-$('layout-headers').addEventListener('change',()=>{transcriptEdited=false;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;say('เปลี่ยนตัวเลือกแยกแถวชื่อแล้ว · กดตรวจทั้งภาพอีกครั้ง');});
-$('photo').addEventListener('change',()=>{transcriptEdited=false;$('advanced-settings').open=false;$('advanced-results').open=false;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
-$('crop').addEventListener('change',()=>{transcriptEdited=false;$('transcript-panel').hidden=true;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
+$('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดเมื่อขั้นตอน OCR ปัจจุบันเสร็จ (ไม่สามารถยกเลิก inference ระหว่างทำงานได้)');});
+$('layout-headers').addEventListener('change',()=>{if(queueFiles.length>1)return;transcriptEdited=false;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;say('เปลี่ยนตัวเลือกแยกแถวชื่อแล้ว · กดตรวจทั้งภาพอีกครั้ง');});
+$('photo').addEventListener('change',()=>{
+ const files=Array.from($('photo').files||[]);queueResults=[];releaseImageState();clearQueueOutput();
+ $('advanced-settings').open=false;$('advanced-results').open=false;
+ if(files.length>MAX_QUEUE_IMAGES){$('photo').value='';queueFiles=[];say(`เลือกได้สูงสุด ${MAX_QUEUE_IMAGES} ภาพต่อชุด กรุณาแบ่งเป็นชุดย่อย (ไม่มีภาพถูกอ่าน)`);}
+ else{queueFiles=files;say(files.length?`เลือก ${files.length} ภาพแล้ว · ตรวจลำดับก่อนเริ่ม`:'เลือกภาพ Discord ก่อนจ้า');}
+ $('advanced-results').hidden=queueFiles.length>1;$('queue-progress').max=Math.max(1,queueFiles.length);renderQueue();
+});
+$('crop').addEventListener('change',()=>{if(queueFiles.length>1)return;transcriptEdited=false;$('transcript-panel').hidden=true;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
 $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
 $('transcript-text').addEventListener('input',()=>{transcriptEdited=true;});
-$('transcript-refresh').addEventListener('click',()=>{transcriptEdited=false;refreshTranscript(true);});
+$('transcript-refresh').addEventListener('click',()=>{transcriptEdited=false;if(queueFiles.length>1)showQueueTranscript(true);else refreshTranscript(true);});
+$('queue-copy-safe').addEventListener('click',()=>copyOrShow(queueResults.map((r,i)=>`Image ${i+1}: ${r.state}\n${r.diagnostic}`).join('\n\n')));
+renderQueue();
 $('copy-transcript').addEventListener('click',()=>copyOrShow($('transcript-text').value));
 window.addEventListener('pagehide',()=>{try{worker?.terminate();onnx?.release();}catch(_){}});
