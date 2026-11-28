@@ -1,4 +1,4 @@
-import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned} from './d4-layout.mjs?v=d5a1';
+import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5bc';
 import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d4';
 import {trailingBitmap} from './graphic-edge.mjs?v=d4';
 import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d4';
@@ -73,11 +73,11 @@ async function detectLines(file){
   ocrLines=ocrLines.map(line=>{const audit=auditDetectedRegion(line,pixels,imageCanvas.width,imageCanvas.height,{typicalHeight});return {...line,...audit};});
   textColumn=inferTextColumn(ocrLines,imageCanvas.width);
    ocrLines=classifyStructure(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
-  ocrLines=refineSemanticRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
+  ocrLines=refineSemanticRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn,{cropped:cropApplied});
   // Phase D.1: use author-colored layout as an INDEPENDENT source of candidate
   // headers, not Tesseract's sometimes mixed header+body boxes. Re-OCR narrow
   // horizontal strips before building the transcript. Source image unchanged.
-  const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height,{leftFraction:cropApplied?.025:.07}):[];
+  const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height,{leftFraction:textColumn?Math.max(0,(textColumn.x-6)/imageCanvas.width):(cropApplied?.025:.07)}):[];
   if(bands.length){
    const original=ocrLines;
    const accepted=[],headers=[],nameCache=[];
@@ -85,7 +85,7 @@ async function detectLines(file){
     const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
     const overlaps=original.filter(l=>Math.min(l.bbox.y1,band.y1)-Math.max(l.bbox.y0,band.y0)>=Math.min(12,(l.bbox.y1-l.bbox.y0)*.35));
     if(headerBandBlocked(headerBox,overlaps,pixels,imageCanvas.width,imageCanvas.height,textColumn))continue;
-    const nearbyLine=overlaps.filter(l=>['header','mixed'].includes(l.kind)&&headerClockAligned(headerBox,l))
+    const nearbyLine=overlaps.filter(l=>(['header','mixed'].includes(l.kind)||timedAuthorEvidence(l,pixels,imageCanvas.width,imageCanvas.height,textColumn))&&headerClockAligned(headerBox,l))
       .find(l=>parseDiscordTimestamp(String(l.text||'').replace(/\s+/g,' ').trim(),{allowBare24:true}));
     const nearby=nearbyLine?String(nearbyLine.text||'').replace(/\s+/g,' ').trim():'';
     const reread=await rereadRegion({bbox:headerBox},'header');
@@ -121,7 +121,7 @@ async function detectLines(file){
    ocrLines=improved.sort((a,b)=>a.bbox.y0-b.bbox.y0||a.bbox.x0-b.bbox.x0);
   }
   ocrLines=classifyStructure(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
-  ocrLines=refineSemanticRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
+  ocrLines=refineSemanticRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn,{cropped:cropApplied});
   // Short names may not create a geometric header band. Keep its observed clock.
   if($('layout-headers').checked)for(const l of ocrLines){
    if(l.kind!=='mixed'||!l.bodyBand)continue;
@@ -210,11 +210,11 @@ function preparedLineCanvas(line){
  const geometry=focus&&$('layout-focus').checked;
  const mixedBand=geometry&&line.kind==='mixed'&&line.bodyBand;
  const bodyTarget=mixedBand?{...b,y0:b.y0+line.bodyBand.top,y1:b.y0+line.bodyBand.bottom}:b;
- const expansion=geometry&&$('extend-text').checked&&['body','mixed'].includes(line.kind)&&imagePixels?
+ const expansion=!line.mention&&geometry&&$('extend-text').checked&&['body','mixed'].includes(line.kind)&&imagePixels?
   extendTextRight(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget):null;
- const safeLeft=geometry&&line.kind==='body'?safeTextLeft(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget,textColumn):null;
+ const safeLeft=!line.mention&&geometry&&line.kind==='body'?safeTextLeft(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget,textColumn):null;
  const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX,safeLeft??0,line.textLeft??0),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY);
- const bitmap=geometry&&['body','reply'].includes(line.kind)?trailingBitmap({...bodyTarget,x1:Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1))},imagePixels,imageCanvas.width,imageCanvas.height,textColumn):null;
+ const bitmap=!line.mention&&geometry&&['body','reply'].includes(line.kind)?trailingBitmap({...bodyTarget,x1:Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1))},imagePixels,imageCanvas.width,imageCanvas.height,textColumn):null;
  const x1=Math.min(imageCanvas.width,line.textRight??bitmap?.cutX??Math.ceil(expansion||bodyTarget.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(bodyTarget.y1)+padY);
  const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
  const ctx=c.getContext('2d',{willReadFrequently:true});ctx.drawImage(imageCanvas,x0,y0,c.width,c.height,0,0,c.width,c.height);
@@ -353,7 +353,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens D.5a.1 — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.5b–c — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}

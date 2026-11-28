@@ -33,13 +33,36 @@ export function conversationCrop(p,w,h){
  const x=Math.round(w*.06);return {x,y:top,width:w-x,height:safeBottom-top,cropped:true};
 }
 function ink(p,w,x,y){const c=rgb(p,w,x,y);return lum(c)>155&&Math.max(...c)-Math.min(...c)<35;}
-/** Highlighted mention has a broad blue/purple dark background, unlike reply preview. */
+/** Detect stable tinted highlight independent of role hue. The margin provides
+ * local background; require a broad filled surface rather than colored glyphs. */
 export function hasMentionBackground(b,p,w,h,column){
  if(!valid(b)||!column||!p||p.length!==w*h*4)return false;
- const H=b.y1-b.y0;const x0=Math.max(0,Math.floor(column.x)),x1=Math.min(w,Math.ceil(b.x1),x0+H*5);
- let n=0,total=0;
- for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y+=2)for(let x=x0;x<x1;x+=2){const [r,g,bl]=rgb(p,w,x,y);total++;if(bl>=45&&bl<=140&&bl>r+12&&bl>g+9&&r<100)n++;}
- return total>0&&n/total>.22;
+ const H=b.y1-b.y0,X=Math.max(0,Math.floor(column.x)),x1=Math.min(w,Math.ceil(b.x1),X+H*5);
+ if(H<12||x1-X<H*.9||b.x0>X+H*.35)return false;
+ const bg=rgb(p,w,Math.max(0,Math.floor(X-H*1.6)),Math.max(0,Math.min(h-1,Math.floor(b.y0+H*.5))));
+ // Avatar may occupy the left margin; the far right is a safer fallback.
+ const edge=rgb(p,w,w-2,Math.max(0,Math.min(h-1,Math.floor(b.y0+H*.5))));
+ const base=lum(edge)<55?edge:bg;if(lum(base)>55)return false;
+ const buckets=new Map();let total=0;
+ for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y+=2)for(let x=X;x<x1;x+=2){
+  const c=rgb(p,w,x,y),d=c.map((v,i)=>v-base[i]);total++;
+  if(lum(c)>140||Math.max(...d)<6||Math.max(...d)-Math.min(...d)<6||Math.min(...d)<-12)continue;
+  const k=c.join(',');let t=buckets.get(k);if(!t){t={n:0,x0:x,x1:x,y0:y,y1:y};buckets.set(k,t);}t.n++;t.x0=Math.min(t.x0,x);t.x1=Math.max(t.x1,x);t.y0=Math.min(t.y0,y);t.y1=Math.max(t.y1,y);
+ }
+ return total>0&&[...buckets.values()].some(t=>t.n/total>.19&&t.x0-X<=H*.4&&t.x1-t.x0>=H*.9&&t.y1-t.y0>=H*.30);
+}
+/** A full-size author avatar, aligned colored name, and observed date/time
+ * can override an initial reply guess. A mini-avatar quote is indented. */
+export function timedAuthorEvidence(row,p,w,h,column){
+ const b=row?.bbox;if(!valid(b)||!column||!p||p.length!==w*h*4||!parseDiscordTimestamp(String(row.text||''),{allowBare24:true}))return false;
+ const H=b.y1-b.y0,X=column.x;if(b.x0>X-H*.5||hasMentionBackground(b,p,w,h,column))return false;
+ let avatar=0,name=0,clock=0;
+ for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y+=2){
+  for(let x=Math.max(0,Math.floor(X-H*1.8));x<Math.min(w,X-H*.25);x+=2){if(lum(rgb(p,w,x,y))>95)avatar++;}
+  for(let x=Math.max(0,Math.floor(X));x<Math.min(w,b.x1,X+H*4);x+=2){const c=rgb(p,w,x,y);if(lum(c)>105&&lum(c)-Math.min(...c)>35)name++;}
+  for(let x=Math.max(0,Math.floor(X+H*2));x<Math.min(w,b.x1);x+=2){const c=rgb(p,w,x,y);if(lum(c)>=95&&lum(c)<=210&&lum(c)-Math.min(...c)<25)clock++;}
+ }
+ return avatar>H*H*.035&&name>H*.5&&clock>H*.5;
 }
 /** A broad OCR container can include both a timed header and a highlighted
  * mention on the next physical row. Preserve the header evidence until split.
@@ -56,7 +79,7 @@ export function mixedMentionContainer(row,rows,p,w,h,column){
  * cannot veto a real header merely because the OCR container overlaps both. */
 export function headerBandBlocked(box,rows,p,w,h,column){
  if(hasMentionBackground(box,p,w,h,column))return true;
- return rows.some(r=>r.kind==='reply'&&valid(r.bbox)&&span(box,r.bbox)>=.6*(r.bbox.y1-r.bbox.y0));
+ return rows.some(r=>r.kind==='reply'&&!timedAuthorEvidence(r,p,w,h,column)&&valid(r.bbox)&&span(box,r.bbox)>=.6*(r.bbox.y1-r.bbox.y0));
 }
 /** Limit fallback clock evidence to the first physical row of a container. */
 export function headerClockAligned(box,row){
@@ -91,15 +114,23 @@ export function replyTextLeft(b,p,w,h,column){
  return null;
 }
 function controlRegion(b,p,w,h,column){
- const H=b.y1-b.y0,W=b.x1-b.x0;if(H<12||W/H<.6||W/H>3.5)return false;
+ const H=b.y1-b.y0,W=b.x1-b.x0;if(H<12||W/H<.6||W/H>5)return false;
  const arrow=b.x0>w*.85&&b.y0>h*.65&&W/H<1.6;
- const reaction=b.x0>column.x+H*.7&&b.x1<column.x+H*7;
+ const reaction=b.x0>=column.x-H*.25&&b.x0<column.x+H*2&&b.x1<column.x+H*7;
  if(!arrow&&!reaction)return false;
  let total=0,chip=0,bright=0,colored=0;
- for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y++)for(let x=Math.max(0,Math.floor(b.x0));x<Math.min(w,b.x1);x++){
-  const c=rgb(p,w,x,y),hi=lum(c),lo=Math.min(...c);total++;if(lo>=34&&hi<=100&&hi-lo<25)chip++;if(lo>=180&&hi-lo<25)bright++;if(hi>=112&&hi-lo>35)colored++;
+ const columns=[];
+ for(let x=Math.max(0,Math.floor(b.x0));x<Math.min(w,Math.ceil(b.x1));x++){
+  let n=0;
+  for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,Math.ceil(b.y1));y++){
+   const c=rgb(p,w,x,y),hi=lum(c),lo=Math.min(...c);total++;
+   if(lo>=32&&hi<=100&&hi-lo<25){chip++;n++;}if(lo>=180&&hi-lo<25)bright++;if(hi>=112&&hi-lo>35)colored++;
+  }columns.push(n/H>.45);
  }
- return total>0&&chip/total>.42&&bright/total<.06&&colored/total<.08;
+ // Emoji pixels are expected inside a reaction, not evidence of text.
+ // Require a sustained neutral raised chip; tinted mentions are handled first.
+ let run=0,maxRun=0;for(const v of columns){run=v?run+1:0;maxRun=Math.max(maxRun,run);}
+ return total>0&&chip/total>.40&&bright/total<.075&&maxRun>=H*.55&&(arrow?colored/total<.08:colored/total<.55);
 }
 /** Muted short suffix after bright body text. Require observed edited token
  * or smaller neutral ink geometry at the very end; do not rewrite text. */
@@ -111,12 +142,15 @@ function editedEdge(r,p,w,h,column){
  return last+3;
 }
 /** Preserve candidates; only mark proven duplicate slivers and highlighted mentions. */
-export function refineSemanticRows(rows,p,w,h,column){
+export function refineSemanticRows(rows,p,w,h,column,{cropped=false}={}){
  if(!column||!p||p.length!==w*h*4)return rows;
- const out=rows.map(r=>({...r}));const heights=out.filter(r=>r.kind==='body'&&!r.splitBody&&valid(r.bbox)).map(r=>r.bbox.y1-r.bbox.y0),typical=median(heights);
- for(const r of out){const b=r.bbox;if(!valid(b))continue;const H=b.y1-b.y0;
-  if(['fragment','reply'].includes(r.kind)&&controlRegion(b,p,w,h,column)){r.kind='graphic';r.reason='ปุ่มควบคุมหรือ Reaction ที่สงสัย';continue;}
-  if(['body','fragment','header','mixed','reply'].includes(r.kind)&&!r.replyContinuation&&hasMentionBackground(b,p,w,h,column)&&!mixedMentionContainer(r,out,p,w,h,column)){r.kind='body';r.mention=true;r.layoutHeader=false;r.nameROI=null;r.nameEvidence=null;r.reason='Mention ในเนื้อหา ไม่ใช่หัวข้อความหรือ Reply';}
+ const out=rows.map(r=>({...r}));const heights=out.filter(r=>r.kind==='body'&&!r.splitBody&&valid(r.bbox)&&r.bbox.y0>4&&r.bbox.y1<h-4).map(r=>r.bbox.y1-r.bbox.y0),typical=median(heights);
+ const evidence=out.map(r=>({mention:valid(r.bbox)&&hasMentionBackground(r.bbox,p,w,h,column)&&!mixedMentionContainer(r,rows,p,w,h,column),author:timedAuthorEvidence(r,p,w,h,column)}));
+ for(let i=0;i<out.length;i++){const r=out[i],b=r.bbox;if(!valid(b))continue;const H=b.y1-b.y0,e=evidence[i];
+  if(cropped&&typical>=24&&H<typical*.56&&(b.y0<=2||b.y1>=h-2)&&['body','fragment','header','mixed','reply'].includes(r.kind)){r.kind='covered';r.reason='เศษข้อความชิดขอบที่ถูกตัด (เก็บกรอบไว้ตรวจสอบ)';continue;}
+  if(e.author&&r.kind==='reply'){r.kind='header';r.reason='หัวข้อความมีเวลาและ Avatar จริง';}
+  if(!e.mention&&['fragment','reply'].includes(r.kind)&&controlRegion(b,p,w,h,column)){r.kind='graphic';r.reason='ปุ่มควบคุมหรือ Reaction ที่สงสัย';continue;}
+  if(['body','fragment','header','mixed','reply'].includes(r.kind)&&!r.replyContinuation&&e.mention){r.kind='body';r.mention=true;r.layoutHeader=false;r.nameROI=null;r.nameEvidence=null;r.reason='Mention ในเนื้อหา ไม่ใช่หัวข้อความหรือ Reply';}
   else if(r.kind==='reply'&&!r.replyContinuation){const left=replyTextLeft(b,p,w,h,column);if(left!==null)r.textLeft=left;}
 
   if(['body','fragment'].includes(r.kind)){
@@ -155,6 +189,30 @@ export function refineSemanticRows(rows,p,w,h,column){
    if(x<q.x0-4||x>=q.x1+4||y<q.y0-4||y>=q.y1+4)extra++;else inside++;
   }
   if(inside>=8&&extra<4){r.kind='covered';r.reason='กรอบย่อยซ้อนข้อความจริง (ตรวจสอบได้)';}
+ }
+ // Resolve partial physical lines even when initial types disagree. A short
+ // sliver may contain top marks outside the full crop: preserve them by union,
+ // rather than discard their pixels. Require one overlapping taller row.
+ for(const r of out){
+  if(!['body','fragment'].includes(r.kind)||!valid(r.bbox)||!typical)continue;
+  const b=r.bbox,H=b.y1-b.y0;
+  const candidates=out.filter(q=>q!==r&&['body','fragment'].includes(q.kind)&&valid(q.bbox)&&q.bbox.y1-q.bbox.y0>=H*1.12&&span(b,q.bbox)>=H*.50&&q.bbox.x0<=column.x+typical*.55&&q.bbox.x1>column.x+4);
+  if(candidates.length!==1||H>typical*.9&& !r.splitBody)continue;
+  const q=candidates[0],a=q.bbox,T=a.y1-a.y0;
+  if(Math.min(b.x1,a.x1)-Math.max(b.x0,a.x0,column.x-5)<.65*Math.min(b.x1-Math.max(b.x0,column.x-5),a.x1-Math.max(a.x0,column.x-5)))continue;
+  const top=Math.min(a.y0,b.y0),bottom=Math.max(a.y1,b.y1);if(bottom-top>T*1.4)continue;
+  let inside=0,outside=0;const edgeRows=new Set();
+  for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,Math.ceil(b.y1));y++)for(let x=Math.max(0,Math.floor(column.x-5));x<Math.min(w,Math.ceil(b.x1));x++){
+   const c=rgb(p,w,x,y);if(lum(c)<95)continue;
+   if(x<a.x0-6||x>=a.x1+6){outside++;continue;}
+   if(y<a.y0||y>=a.y1)edgeRows.add(y);else inside++;
+  }
+  if(inside<8||outside>=4)continue;
+  // A distinct text row must not be absorbed. Extra marks must meet the
+  // existing row (no empty separating scanline) and be shallow.
+  if(edgeRows.size){const ys=[...edgeRows].sort((x,y)=>x-y);if(ys.length>T*.27||ys.some(y=>y<a.y0- T*.30||y>=a.y1+T*.30))continue;}
+  q.sourceBodyBox=q.sourceBodyBox||a;q.bbox={...a,y0:top,y1:bottom};
+  r.kind='covered';r.reason='กรอบบางซ้อนแถวเดียวกัน เก็บพิกเซลในกรอบหลัก';
  }
  // Preserve clear paragraph spacing; no effect on distinct message headers.
  let prev=null;for(const r of out){if(['header','mixed','date','reply'].includes(r.kind)){prev=null;continue;}if(!['body','fragment'].includes(r.kind)||!valid(r.bbox))continue;
