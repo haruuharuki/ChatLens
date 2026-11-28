@@ -1,4 +1,5 @@
 /** Dark mobile Discord geometry. No private text or device-specific coordinates. */
+import {visualEditedEdge,clippedEdge} from './d5d-layout.mjs?v=d5d';
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const valid=b=>b&&b.x1>b.x0&&b.y1>b.y0;
 const span=(a,b)=>Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
@@ -136,7 +137,7 @@ function controlRegion(b,p,w,h,column){
  * or smaller neutral ink geometry at the very end; do not rewrite text. */
 function editedEdge(r,p,w,h,column){
  const b=r.bbox,H=b.y1-b.y0;let last=-1;const start=Math.max(0,Math.floor(column.x)),end=Math.min(w,Math.ceil(b.x1));
- if(!/\(edited\)\s*$/i.test(String(r.text||'')))return null;
+ if(!/\(edited\)\s*$/i.test(String(r.text||'')))return visualEditedEdge(b,p,w,h,column);
  for(let x=start;x<end;x++)for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y++)if(Math.min(...rgb(p,w,x,y))>=180)last=x;
  if(last<start||end-last<H*.75||end-last>H*4)return null;
  return last+3;
@@ -147,7 +148,7 @@ export function refineSemanticRows(rows,p,w,h,column,{cropped=false}={}){
  const out=rows.map(r=>({...r}));const heights=out.filter(r=>r.kind==='body'&&!r.splitBody&&valid(r.bbox)&&r.bbox.y0>4&&r.bbox.y1<h-4).map(r=>r.bbox.y1-r.bbox.y0),typical=median(heights);
  const evidence=out.map(r=>({mention:valid(r.bbox)&&hasMentionBackground(r.bbox,p,w,h,column)&&!mixedMentionContainer(r,rows,p,w,h,column),author:timedAuthorEvidence(r,p,w,h,column)}));
  for(let i=0;i<out.length;i++){const r=out[i],b=r.bbox;if(!valid(b))continue;const H=b.y1-b.y0,e=evidence[i];
-  if(cropped&&typical>=24&&H<typical*.56&&(b.y0<=2||b.y1>=h-2)&&['body','fragment','header','mixed','reply'].includes(r.kind)){r.kind='covered';r.reason='เศษข้อความชิดขอบที่ถูกตัด (เก็บกรอบไว้ตรวจสอบ)';continue;}
+  if(cropped&&['body','fragment','reply'].includes(r.kind)&&clippedEdge(b,p,w,h,column,typical)){r.kind='covered';r.edgeClipped=true;r.reason='เศษข้อความชิดขอบที่ถูกตัด (เก็บกรอบไว้ตรวจสอบ)';continue;}
   if(e.author&&r.kind==='reply'){r.kind='header';r.reason='หัวข้อความมีเวลาและ Avatar จริง';}
   if(!e.mention&&['fragment','reply'].includes(r.kind)&&controlRegion(b,p,w,h,column)){r.kind='graphic';r.reason='ปุ่มควบคุมหรือ Reaction ที่สงสัย';continue;}
   if(['body','fragment','header','mixed','reply'].includes(r.kind)&&!r.replyContinuation&&e.mention){r.kind='body';r.mention=true;r.layoutHeader=false;r.nameROI=null;r.nameEvidence=null;r.reason='Mention ในเนื้อหา ไม่ใช่หัวข้อความหรือ Reply';}

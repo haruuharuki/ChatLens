@@ -1,5 +1,7 @@
-import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5bc';
-import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d4';
+import {linkReplyRegions} from './reply-identity.mjs?v=d5d';
+import {refineEdgeRows} from './d5d-layout.mjs?v=d5d';
+import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5d';
+import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d5d';
 import {trailingBitmap} from './graphic-edge.mjs?v=d4';
 import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d4';
 import {inferTextColumn,safeTextLeft,allowVerticalBand} from './smart-region.mjs?v=d2c12';
@@ -13,7 +15,7 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d5a';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d5d';
 import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d4';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
@@ -122,6 +124,7 @@ async function detectLines(file){
   }
   ocrLines=classifyStructure(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
   ocrLines=refineSemanticRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn,{cropped:cropApplied});
+  ocrLines=refineEdgeRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn,{cropped:cropApplied});
   // Short names may not create a geometric header band. Keep its observed clock.
   if($('layout-headers').checked)for(const l of ocrLines){
    if(l.kind!=='mixed'||!l.bodyBand)continue;
@@ -134,6 +137,7 @@ async function detectLines(file){
    const combined=combineRecognizedHeader({full:l.text,nameOnly,nearby:l.text,trustedNameGeometry:true});
    if(parseHeader(combined.text,'mixed')){l.text=combined.text;l.nameROI=nameROI;l.nameEvidence={full,nearby:full,native,scaled:nameOnly,badge:nameROI.badge};}
   }
+  ocrLines=linkReplyRegions(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
 }
 /** Targeted second pass: geometry is known; never include pixels outside it. */
 async function rereadRegion(line,kind,scale=1){
@@ -324,10 +328,10 @@ function refreshTranscript(force=false){
   return {...line,kind:line.alternateBody&&item?'body':line.kind,originalText:line.text,
    baseline:item?.baseline??line.text,
    candidate:item?.candidate??null,
-   error:Boolean(item?.error),bulletRead:Boolean(line.bullet&&item?.candidate!==null&&item?.candidate!==undefined&&!item.error),bitmap:item?.prepared?.bitmap??null,truth:item?.truth??'',bodyOnly:line.kind==='mixed'?Boolean(item?.prepared?.mixedBand):true};
+   error:Boolean(item?.error),replyBodyRead:Boolean(line.replyIdentity&&item?.baseline!==line.text&&item?.prepared?.cleaned&&!item?.error),bulletRead:Boolean(line.bullet&&item?.candidate!==null&&item?.candidate!==undefined&&!item.error),bitmap:item?.prepared?.bitmap??null,truth:item?.truth??'',bodyOnly:line.kind==='mixed'?Boolean(item?.prepared?.mixedBand):true};
  });
  const resolved=resolveNameEvidence(rows,imagePixels,imageCanvas.width,imageCanvas.height);
- lastNameResolutions=resolved.map(r=>r.nameResolution??null);
+ lastNameResolutions=resolved.map(r=>r.nameResolution??r.replyNameResolution??null);
  const result=assembleTextTranscript(resolved);
  $('transcript-text').value=formatTextTranscript(result);
  $('transcript-warning').textContent=[
@@ -353,7 +357,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens D.5b–c — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.5d — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Edge clips: ${ocrLines.filter(l=>l.edgeClipped).length}; UI/graphic: ${ocrLines.filter(l=>l.kind==='graphic').length}; Reply identity links: ${ocrLines.filter(l=>l.replyIdentity).length}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}
@@ -389,7 +393,7 @@ function renderReview(){
    updateReviewSummary();
   });
   const area=document.createElement('div');area.className='review-desc';
-  const name=document.createElement('strong');name.textContent=`บรรทัด ${index+1} · ${line.alternateBody?'กรอบสำรอง (อ่านเมื่อจำเป็น)':kinds[line.kind]||'ยังไม่ทราบ'}`;
+  const name=document.createElement('strong');name.textContent=`บรรทัด ${index+1} · ${line.edgeClipped?'ข้อความที่ถูกตัดขอบภาพ':line.alternateBody?'กรอบสำรอง (อ่านเมื่อจำเป็น)':kinds[line.kind]||'ยังไม่ทราบ'}`;
    const hint=document.createElement('small');hint.textContent=(line.reason||'ตรวจภาพด้วยตาก่อนเลือก')+(line.kind==='graphic'?' · หากเป็นรูปจริง ไม่ต้องติ๊กเพื่อให้ OCR อ่าน':'');
   const preview=originalPreview(line);preview.className='review-image';preview.setAttribute('aria-label',`ภาพต้นฉบับบรรทัด ${index+1}`);
   area.append(name,hint,preview);entry.append(check,area);host.append(entry);

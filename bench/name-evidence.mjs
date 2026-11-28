@@ -1,5 +1,5 @@
 /** Same visible username pixels, not account identity. Local and per image. */
-import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d4';
+import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d5d';
 const clean=s=>String(s??'').normalize('NFC').replace(/\s+/g,' ').trim();
 const valid=b=>b&&['x0','x1','y0','y1'].every(k=>Number.isInteger(b[k]))&&b.x1>b.x0&&b.y1>b.y0;
 export function identicalNamePixels(a,b,p,w,h){
@@ -57,7 +57,7 @@ function localChoice(row,head,obs){
 export function resolveNameEvidence(rows,p,w,h){
  const records=[];const out=rows.map(r=>({...r}));
  for(let i=0;i<out.length;i++){
-  const r=out[i];if(!['header','mixed'].includes(r.kind)||!r.nameEvidence||!r.nameROI)continue;
+  const r=out[i];if(!['header','mixed'].includes(r.kind)||!r.nameEvidence||!r.nameROI||r.clippedName)continue;
   const head=chooseHeaderReading(r,r.originalText??r.text);if(!head)continue;
   const obs=observations(r,head),choice=localChoice(r,head,obs);
   const record={i,r,head,obs,choice};records.push(record);
@@ -81,11 +81,27 @@ export function resolveNameEvidence(rows,p,w,h){
    const conflict=all.some(o=>prefix(o.name)&&prefix(o.name)!==prefix(n));
    if(support.length>=2&&!conflict){for(const r of group)r.choice={speaker:n,reason:'identical-pixels-bilingual',uncertain:true};continue;}
   }
+  // Exact pixel equality permits pooling independent complete header reads.
+  // Cached native/scaled crops are not repeated votes. A single clean Latin
+  // full-row baseline may disambiguate a near-conflicting isolated reading,
+  // but never override a different prefix or Thai suffix.
+  const fullLatin=[...new Set(all.filter(o=>o.source==='baseline'&&latinName(o.name)).map(o=>o.name))];
+  if(fullLatin.length===1&&options.length>1){
+   const n=fullLatin[0],m=latinName(n),peers=options.map(latinName);
+   const near=(a,b)=>a.length===b.length&&Array.from(a).filter((c,i)=>c!==b[i]).length<=1;
+   if(peers.every(q=>q[1]===m[1]&&q[3]===m[3]&&near(q[2],m[2]))&&group.some(r=>r.choice.speaker===n)){
+    for(const r of group)r.choice={speaker:n,reason:'identical-pixels-full-row-observation',uncertain:true};continue;
+   }
+  }
   // Reuse an observed exact name only when local decisions agree, never fill
   // a dissenting record merely because it has the same color or width.
   const same=group.every(r=>r.choice.speaker===group[0].choice.speaker);
   if(same)for(const r of group)r.choice={...r.choice,reason:'identical-pixels-agree'};
  }
  for(const r of records)out[r.i].nameResolution={...r.choice,time:r.head.time,date:r.head.date};
+ for(const row of out){if(!row.replyIdentity||row.kind!=='reply')continue;
+  const box=row.replyIdentity.headerBox,record=records.find(r=>['x0','x1','y0','y1'].every(k=>r.r.nameROI[k]===box[k]));
+  if(record)row.replyNameResolution={speaker:record.choice.speaker,uncertain:true,reason:'unique-visible-reply-name-shape'};
+ }
  return out;
 }

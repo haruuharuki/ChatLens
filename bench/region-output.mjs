@@ -17,6 +17,16 @@ const closeText=(a,b)=>{const x=norm(a),y=norm(b);return !!x&&!!y&&(x===y||Math.
 export function selectBilingualText(candidate,baseline,original=baseline){
  const c=String(candidate??'').trim(),b=String(baseline??'').trim();
  if(!c)return b;if(!b)return c;
+ // Structured dice notation is a real observed mixed token, not a dictionary
+ // correction. Require the same digit sequence and otherwise similar text.
+ const dice=s=>[...s.matchAll(/(?<![\p{L}\p{N}])\d{1,3}[dD]\d{1,4}(?![\p{L}\p{N}])/gu)].map(m=>m[0]);
+ const diceDigits=s=>s.match(/\d+/g)?.join('|')||'';
+ const dc=dice(c),db=dice(b);
+ if(dc.length!==db.length&&diceDigits(c)===diceDigits(b)&&diceDigits(c)&&closeText(c,b))return dc.length>db.length?c:b;
+ // Punctuation seen in two passes should survive a dropped boundary mark.
+ // Choose a complete observed reading, not a guessed character.
+ const marker=s=>s.match(/^[.!?]|[.!?]$/g)?.join('')||'';
+ if(marker(b)&&marker(b)===marker(String(original).trim())&&!marker(c)&&norm(b)===norm(c))return b;
  const bt=latin(b),ct=latin(c),ot=latin(original);
  // Edge-only Latin noise is common when an avatar/emoji is in a Thai crop.
  // Preserve mixed tokens only when they are between Thai text, or the other
