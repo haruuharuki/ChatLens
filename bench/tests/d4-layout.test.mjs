@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {conversationCrop,bulletRegion,replyTextLeft,refineSemanticRows,headerBandBlocked,headerClockAligned} from '../d4-layout.mjs';
+import {conversationCrop,bulletRegion,replyTextLeft,refineSemanticRows,headerBandBlocked,headerClockAligned,hasMentionBackground,timedAuthorEvidence} from '../d4-layout.mjs';
 import {splitBoxesAtHeaders} from '../header-layout.mjs';
 import {redundantSplit} from '../region-plan.mjs';
 import {assembleTextTranscript} from '../text-transcript.mjs';
@@ -91,4 +91,43 @@ test('D5a1 distinct mentions and a recovery without a complete replacement are n
  const r=refineSemanticRows([head,row('body',a,'@Other hello',{splitBody:true}),row('body',b,'@Other hello')],p,W,H,col);
  assert.equal(r[1].kind,'body');assert.equal(r[2].kind,'body');
  assert.equal(assembleTextTranscript(r).entries[0].body,'@Other hello\n@Other hello');
+});
+
+// Synthetic fixtures only. Role color is not a classification label.
+test('D5bc tinted roles of different hues stay under the same timed speaker, even if OCR mislabels them',()=>{
+ const p=picture(),colors=[[26,42,43],[26,37,35],[46,26,37],[45,45,85]],rows=[head];
+ for(let i=0;i<colors.length;i++){
+  const y=150+i*45,b=box(65,y,280,y+35);paint(p,box(65,y+3,230,y+32),colors[i]);paint(p,box(80,y+10,190,y+17),[30,185,130]);
+  rows.push(row(i%2?'header':'reply',b,'@Role '+i));assert.equal(hasMentionBackground(b,p,W,H,col),true);
+ }
+ const end=row('body',box(65,330,300,365),'question');rows.push(end);
+ const out=refineSemanticRows(rows,p,W,H,col);assert.ok(out.slice(1,5).every(r=>r.kind==='body'&&r.mention));
+ assert.equal(assembleTextTranscript(out).entries[0].body,'@Role 0\n@Role 1\n@Role 2\n@Role 3\nquestion');
+ // Colored glyphs on plain chat background are not a highlighted mention.
+ const q=picture();paint(q,box(70,150,200,160),[30,200,100]);assert.equal(hasMentionBackground(box(65,145,310,185),q,W,H,col),false);
+});
+test('D5bc timed author initially tagged reply is recoverable, indented quote with clock is not',()=>{
+ const p=picture(),a=row('reply',box(0,150,420,190),'Avatar [staff] Sample 11/26/26, 3:33 PM'),b=row('reply',box(65,240,420,280),'@Sample 3:33 PM');
+ paint(p,box(10,151,46,188),[160,130,90]);paint(p,box(65,154,190,180),[90,120,245]);paint(p,box(250,160,390,177),[155,155,160]);
+ paint(p,box(65,245,90,275),[160,130,90]);paint(p,box(110,245,210,270),[90,120,245]);paint(p,box(250,250,390,270),[155,155,160]);
+ assert.equal(timedAuthorEvidence(a,p,W,H,col),true);assert.equal(timedAuthorEvidence(b,p,W,H,col),false);
+ const r=refineSemanticRows([a,b],p,W,H,col);assert.equal(r[0].kind,'header');assert.equal(r[1].kind,'reply');assert.equal(headerBandBlocked(a.bbox,[a],p,W,H,col),false);
+});
+test('D5bc cropped thin edge rows remain reviewable while complete short messages survive',()=>{
+ const p=picture(),rows=[row('body',box(65,0,200,12),'noise'),row('body',box(65,30,200,72),'first'),head,row('body',box(65,180,200,222),'second'),row('body',box(65,875,200,900),'last')];
+ let r=refineSemanticRows(rows,p,W,H,col,{cropped:true});assert.equal(r[0].kind,'covered');assert.equal(r[1].kind,'body');assert.equal(r[4].kind,'body');
+ r=refineSemanticRows(rows,p,W,H,col);assert.equal(r[0].kind,'body');
+});
+test('D5bc compact reaction can contain multicolor emoji without becoming chat',()=>{
+ const p=picture(),b=box(75,150,190,195);paint(p,b,[41,41,46]);paint(p,box(80,157,109,188),[235,180,50]);paint(p,box(116,165,124,180),[155,155,160]);
+ const r=refineSemanticRows([head,row('fragment',b,'noise')],p,W,H,col);assert.equal(r[1].kind,'graphic');
+});
+test('D5bc partial fragment under a mention merges only shallow overlapping marks into full crop',()=>{
+ const p=picture(),a=row('fragment',box(0,145,190,170),'noise'),b=row('reply',box(65,150,280,195),'@Role hello');
+ paint(p,box(65,151,235,191),[26,42,43]);paint(p,box(80,155,175,165),[26,188,156]);paint(p,box(80,147,90,153),[26,188,156]);
+ const r=refineSemanticRows([head,a,b,row('body',box(65,220,240,265),'body')],p,W,H,col);assert.equal(r[1].kind,'covered');assert.equal(r[2].kind,'body');assert.equal(r[2].bbox.y0,145);
+});
+test('D5bc nested split sliver is not a second line even when both candidates are recovery rows',()=>{
+ const p=picture(),a=row('body',box(0,150,270,166),'noise',{splitBody:true}),b=row('body',box(0,150,270,200),'full',{splitBody:true});paint(p,box(70,151,230,195));
+ const r=refineSemanticRows([head,a,b,row('body',box(65,230,240,275),'next')],p,W,H,col);assert.equal(r[1].kind,'covered');assert.equal(r[2].kind,'body');
 });
