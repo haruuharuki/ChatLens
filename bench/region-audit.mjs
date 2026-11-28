@@ -4,7 +4,7 @@
  * author/header+body block. It is NOT a Discord message detector.
  * Never mutate input or discard a detected box; a user may review any box.
  */
-const clock=/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i;
+import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const clamp=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
 const neutral=(r,g,b)=>Math.min(r,g,b)>175&&Math.max(r,g,b)-Math.min(r,g,b)<48;
 const chroma=(r,g,b)=>Math.max(r,g,b)>115&&Math.max(r,g,b)-Math.min(r,g,b)>65;
@@ -38,16 +38,16 @@ export function auditDetectedRegion(line,pixels,width,height,{typicalHeight=0}={
  // square. Its accidental OCR ('p a', etc.) should not become chat text.
  // Require image-like pixels, very little readable Thai, no clock AND an
  // extreme-left start before the actual Discord text column.
- const avatarSliver=x0<width*.035&&x1<width*.23&&imageLike>.20&&thaiCount<3&&!clock.test(content);
+ const avatarSliver=x0<width*.035&&x1<width*.23&&imageLike>.20&&thaiCount<3&&!parseDiscordTimestamp(content,{allowBare24:line.kind==='header'||line.kind==='mixed'});
  if(avatarSliver)return {kind:'graphic',reason:'ชิ้นส่วนรูปโปรไฟล์ชิดขอบ ไม่ใช่เนื้อหาข้อความ',imageLike,bodyBand:null};
  const standaloneArtwork=squareish&&h>=Math.max(28,typicalHeight*.75)&&
-    imageLike>.35&&white/total<.27&&thaiCount<3&&!clock.test(content);
+    imageLike>.35&&white/total<.27&&thaiCount<3&&!parseDiscordTimestamp(content,{allowBare24:line.kind==='header'||line.kind==='mixed'});
  if(standaloneArtwork){return {kind:'graphic',reason:'สงสัยเป็นภาพล้วน (ไม่มีเนื้อหาตัวอักษรเพียงพอ) · ตรวจทบทวนได้',imageLike,bodyBand:null};}
  // Real mobile Discord headers often share a Tesseract rectangle with a
  // SECOND white message row. Only trim when the lower white band is distinct.
  const bodyBand=findLowerBodyBand(rowWhite,rowColor,h,stride,w);
  const isTall=typicalHeight>=11&&h>=typicalHeight*1.43;
- const likelyHeader=clock.test(content)||line.kind==='header';
+ const likelyHeader=line.kind==='header'||line.kind==='mixed';
  if(isTall&&likelyHeader&&bodyBand){return {kind:'mixed',reason:'กรอบหัวข้อความรวมเนื้อหา · แยกทดลองเฉพาะแถวเนื้อหาสีขาว',bodyBand,imageLike};}
  return {kind:line.kind,reason:line.reason||'รอตรวจทบทวน',bodyBand:null,imageLike};
 }

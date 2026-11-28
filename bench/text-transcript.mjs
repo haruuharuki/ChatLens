@@ -3,30 +3,20 @@
  * Never infer missing dates, senders, time or text. A 'region' is not a message.
  * OCR engines work on separate line/region crops; the consumer can inspect source.
  */
-const CLOCK=/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i;
-const DATE_EN=/\b(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(20\d{2})\b/i;
-const DATE_NUM=/\b(0?[1-9]|1[0-2])\/(0?[1-9]|[12]\d|3[01])\/(20\d{2}|\d{2})\b/;
+import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
+export {dateFromOCR};
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
-const MONTHS=['January','February','March','April','May','June','July','August','September','October','November','December'];
-export function dateFromOCR(text){
- const s=String(text||'').trim(),en=s.match(DATE_EN);
- if(en){const m=MONTHS.findIndex(x=>x.toLowerCase()===en[1].toLowerCase())+1,d=Number(en[2]),y=Number(en[3]);return isValid(m,d,y)?`${MONTHS[m-1]} ${d}, ${y}`:null;}
- const n=s.match(DATE_NUM);if(!n)return null;
- const m=Number(n[1]),d=Number(n[2]),y=Number(n[3].length===2?`20${n[3]}`:n[3]);
- return isValid(m,d,y)?`${MONTHS[m-1]} ${d}, ${y}`:null;
-}
-function isValid(m,d,y){const dt=new Date(Date.UTC(y,m-1,d));return m>=1&&m<=12&&y>=2000&&y<=2099&&dt.getUTCMonth()===m-1&&dt.getUTCDate()===d;}
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
-function parseHeader(text,kind){
+export function parseHeader(text,kind){
  const s=scrub(text).replace(/\s*\(edited\)\s*$/i,'');
- const match=CLOCK.exec(s);if(!match)return null;
+ const match=parseDiscordTimestamp(s,{allowBare24:true});if(!match)return null;
  if(!['header','mixed'].includes(kind))return null;
  const prefix=s.slice(0,match.index).replace(/^(?:[•.,"'\\]+|(?:pi|DP|BD)\s+|\d[%)]\s*)+/i,'').trim();
  // Reject a long sentence with a casual timestamp, and single letter junk.
- if(prefix.length<2||prefix.length>100||!/[\p{L}]/u.test(prefix)||prefix.split(/\s+/).length>12)return null;
+ if(/^@/.test(prefix)||prefix.length<2||prefix.length>100||!/[\p{L}]/u.test(prefix)||prefix.split(/\s+/).length>12)return null;
  const speaker=prefix.replace(/\s*(?:\[(?:TTO|DAV|APP|MEOW)\]|(?:TTO|DAV|APP|MEOW))\s*$/i,'').trim();
- return {speaker:speaker||prefix,time:match[0].replace(/\s*(AM|PM)$/i,(_,ap)=>' '+ap.toUpperCase()).replace('.',':'),tail:s.slice(match.index+match[0].length).trim()};
+ return {speaker:speaker||prefix,time:match.time,date:match.date,tail:s.slice(match.end).trim()};
 }
 function substantive(t){const s=scrub(t);return !!s&&s.length<=1200&&!EMPTY_ART.test(s)&&(/[\p{L}\p{N}]/u.test(s));}
 function isUI(s){return /^(?:#\s*[A-Za-z][\w-]*|\d{1,3}\s+Online\b|Message\s*#|\b(?:\d{1,2}:\d{2})\b\s*[5G]*)$/i.test(s);}
@@ -58,13 +48,13 @@ export function assembleTextTranscript(rows=[]){
    if(kind==='graphic'){graphics++;continue;}
 	   if(kind==='covered')continue; // original overlapping OCR header; targeted header replaces it
    if(!raw && !r.candidate && !r.truth)continue;
-   const parsedDate=dateFromOCR(raw);
-   if(parsedDate && (/^(?:\w+\s+\d+,?\s+20\d\d|\d+\/\d+\/\d+)/.test(raw)) && raw.length<45){
+   const parsedDate=dateSeparator(raw);
+   if(parsedDate && (kind==='date'||kind==='fragment')){
      flush();if(date!==parsedDate)output.push({dateMarker:parsedDate});date=parsedDate;pendingReply=null;continue;
    }
    const head=parseHeader(raw,kind);
    if(head){
-     flush();current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:false,lastY:r.bbox.y1};pendingReply=null;
+     flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:false,lastY:r.bbox.y1};pendingReply=null;
      const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&substantive(r.candidate)?scrub(r.candidate):head.tail)):head.tail;
      if(mixedBody&&substantive(mixedBody))pushBody(mixedBody,r.bbox);
      continue;
@@ -103,7 +93,7 @@ export function assembleTextTranscript(rows=[]){
 }
 export function formatTextTranscript(result){
  const lines=[],entries=result?.entries||[];
- if(!entries.some(e=>e.dateMarker))lines.push('[ไม่ทราบวันที่]');
+ if(entries.length===0||!entries[0].dateMarker)lines.push('[ไม่ทราบวันที่]');
  for(const e of entries){
    if(e.dateMarker){lines.push(`[${e.dateMarker}]`);continue;}
    const head=`[${e.speaker||'ไม่ทราบผู้พูด'}] - ${e.time||'ไม่ทราบเวลา'}`;

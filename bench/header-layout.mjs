@@ -3,6 +3,7 @@
  * Color is a layout clue, NOT OCR. We still need a verified timestamp and OCR
  * before assigning an author. Never modifies the original screenshot pixels.
  */
+import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const sat = (r,g,b) => (g>=112 && g>r*1.18 && g>b*1.07) ||
   (b>=132 && b>r*1.08 && b>g*1.07);
 const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
@@ -50,7 +51,7 @@ export function splitBoxesAtHeaders(lines,bands,width){
  if(!Array.isArray(lines)||!bands?.length)return {lines:lines||[],split:0,covered:0};
  const out=[];let split=0,covered=0;
  for(const line of lines){
-  if(line.kind==='graphic'){out.push(line);continue;}
+  if(['graphic','reply','date'].includes(line.kind)){out.push(line);continue;}
   const b=line.bbox;
   const hit=bands.find(h=>Math.min(h.y1,b.y1)-Math.max(h.y0,b.y0)>=Math.min(12,(b.y1-b.y0)*.35)
     &&b.x0<width*.91);
@@ -72,10 +73,11 @@ export function splitBoxesAtHeaders(lines,bands,width){
  * A badge (TTO/DAV/etc) may be between username and time.
  */
 export function combineRecognizedHeader({full='',nameOnly='',nearby=''}={}){
- const clock=/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i;
- const fullTime=String(full).match(clock),nearTime=String(nearby).match(clock);
- const time=(fullTime||nearTime)?.[0]||null;
- const rawName=String(nameOnly).replace(clock,'').replace(/\s+/g,' ').trim();
+ const fullTime=parseDiscordTimestamp(full,{allowBare24:true}),nearTime=parseDiscordTimestamp(nearby,{allowBare24:true});
+ const evidence=fullTime||nearTime;
+ const time=evidence?.raw||null;
+ const ownTime=parseDiscordTimestamp(nameOnly);
+ const rawName=(ownTime?String(nameOnly).slice(0,ownTime.index):String(nameOnly)).replace(/\s+/g,' ').trim();
  // Do not drop leading digits from a name: some real Discord handles start
  // with numbers. Cropping out avatar pixels is responsible for this cleanup.
  const name=rawName.replace(/^[:.,\s]+/,'').trim();
@@ -84,6 +86,11 @@ export function combineRecognizedHeader({full='',nameOnly='',nearby=''}={}){
    !/^[a-z]{1,2}\s+[a-z]{1,2}$/i.test(name)&&
    !/\b(?:TTO|DAV|MEOW|APP)\b/i.test(name)&&
    !(name.match(/[<>{}\^~@#$%]/g)||[]).length;
+ if(time&&plausible){
+  const original=nearTime?String(nearby).slice(0,nearTime.index).trim():'';
+  if(original.length>name.length&&original.endsWith(name)&&(!fullTime||fullTime.time===nearTime.time))return {text:String(nearby).trim(),usedNameOnly:false};
+  if(fullTime&&!fullTime.date&&nearTime?.date&&fullTime.time===nearTime.time)return {text:`${name} ${nearTime.raw}`,usedNameOnly:true};
+ }
  if(time&&plausible)return {text:`${name} ${time}`,usedNameOnly:true};
  return {text:fullTime?String(full).trim():nearTime?String(nearby).trim():String(full).trim(),usedNameOnly:false};
 }
