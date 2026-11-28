@@ -1,4 +1,4 @@
-import {conversationCrop,refineSemanticRows} from './d4-layout.mjs?v=d4';
+import {conversationCrop,refineSemanticRows,hasMentionBackground} from './d4-layout.mjs?v=d5a';
 import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d4';
 import {trailingBitmap} from './graphic-edge.mjs?v=d4';
 import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d4';
@@ -13,7 +13,7 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d4';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d5a';
 import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d4';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
@@ -84,7 +84,7 @@ async function detectLines(file){
    for(const band of bands){
     const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
     const overlaps=original.filter(l=>Math.min(l.bbox.y1,band.y1)-Math.max(l.bbox.y0,band.y0)>=Math.min(12,(l.bbox.y1-l.bbox.y0)*.35));
-    if(overlaps.some(l=>l.kind==='reply'))continue;
+    if(hasMentionBackground(headerBox,pixels,imageCanvas.width,imageCanvas.height,textColumn)||overlaps.some(l=>l.kind==='reply'||l.mention))continue;
     const nearbyLine=overlaps.filter(l=>['header','mixed'].includes(l.kind))
       .find(l=>parseDiscordTimestamp(String(l.text||'').replace(/\s+/g,' ').trim(),{allowBare24:true}));
     const nearby=nearbyLine?String(nearbyLine.text||'').replace(/\s+/g,' ').trim():'';
@@ -350,7 +350,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens D.4a–e — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.5a — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}
