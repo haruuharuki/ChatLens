@@ -4,24 +4,26 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#141923">
-<title>ChatLens — Phase C Batch OCR</title>
+<title>ChatLens — Phase D.1c</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;color:#f1f0fb;background:#12151e}
 *{box-sizing:border-box}body{margin:0}main{max-width:880px;margin:auto;padding:16px 14px 88px}a{color:#bbb0ff}h1{font-size:1.5rem;margin:.5rem 0}h2{font-size:1.1rem}p{color:#c8cbd9;line-height:1.55}small,.muted{color:#aeb5ce}.card{background:#1d2130;border:1px solid #40445e;border-radius:16px;padding:16px;margin:16px 0}.notice{background:#141a2b;border:1px solid #565a76;border-radius:10px;padding:12px;overflow-wrap:anywhere;white-space:pre-wrap}
 label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,textarea{width:100%;display:block;border-radius:10px;padding:12px;border:1px solid #565d77;color:#fff;background:#101627;font:inherit}textarea{resize:vertical;min-height:72px;line-height:1.5}button{border:none;border-radius:10px;padding:12px 15px;font:inherit;font-weight:700;color:#1c1731;background:#aea1ff;cursor:pointer;min-height:46px}button:disabled{opacity:.5;cursor:not-allowed}.alt{background:#343b52;color:#fff}.warn{background:#725467;color:#fff}.controls{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.controls button:first-child{grid-column:1 / -1}.check{display:flex;gap:10px;align-items:start;font-weight:400}.check input{margin-top:7px}progress{width:100%;height:14px;accent-color:#b5a6ff;margin:8px 0}
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.stat{background:#101627;border-radius:10px;padding:10px}.stat strong{display:block;font-size:1.15rem}.results{display:grid;gap:12px}.result-row{background:#161b29;border:1px solid #424760;border-radius:13px;padding:12px}.row-head{display:flex;gap:8px;align-items:center;justify-content:space-between}.row-head strong{font-size:1rem}.tag{font-size:.8rem;padding:4px 8px;border-radius:99px;background:#3a405b;white-space:nowrap}.tag.same{background:#254d42}.tag.diff{background:#69502c}.tag.fail{background:#633e4a}.original{background:#10131d;border:1px solid #46445a;border-radius:9px;padding:6px;width:100%;max-height:86px;object-fit:contain;object-position:left center;margin:10px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pair > div{min-width:0}.pair-title{color:#bcb5f7;font-size:.86rem;margin-bottom:5px}.recognized{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1120;border:1px solid #38405d;padding:9px;border-radius:9px;min-height:80px;line-height:1.5}.changed{background:#88602e;color:#fff7dc;border-radius:2px}.truth{margin:10px 0 0}.truth textarea{min-height:62px}.score{font-size:.85rem;color:#c0baf5;margin-top:6px}.help{font-size:.87rem;color:#b9bccd}.review-list{display:grid;gap:7px;max-height:58vh;overflow:auto;margin-top:10px}.review-item{display:flex;align-items:flex-start;gap:10px;border:1px solid #484e65;border-radius:9px;padding:9px;margin:0;font-weight:400;cursor:pointer}.review-item input{flex:none;margin-top:8px;min-width:18px;min-height:18px}.review-desc{min-width:0;flex:1;display:grid;gap:3px}.review-desc strong{font-size:.87rem}.review-desc small{font-size:.79rem}.review-image{display:block;width:100%;max-height:54px;object-fit:contain;object-position:left center;background:#111521;border-radius:5px}.review-item:has(input:checked){border-color:#a69af2}
 @media(max-width:560px){main{padding:13px 12px 80px}.pair{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.controls button:first-child{grid-column:auto}.card{padding:13px}.recognized{min-height:0}}
+[hidden]{display:none!important}summary{cursor:pointer;font-weight:650}#copy-transcript{width:100%;margin:8px 0}#transcript-refresh{font-size:.85rem}
 </style>
 </head>
 <body><main>
 <p><a href="./">← OCR Benchmark</a> · <a href="openthai.html">ทดสอบทีละบรรทัด</a> · <a href="../">ChatLens หลัก</a></p>
-<h1>🔬 Phase D.1 — Text-only Transcript Proof (experimental)</h1>
-<p>เลือกภาพ Discord ใบเดียว แล้วเปรียบเทียบ <b>Tesseract</b> กับ <b>OpenThai 2.1 ONNX</b> หลายบรรทัด โดยโหลดโมเดล OpenThai ครั้งเดียว ระบบตรวจภาพล้วนและกรอบชื่อ+เนื้อหาที่ปนกันก่อนส่งให้ OCR โดยยังให้ทบทวนทุกกรอบได้ ร่างบทสนทนาแยกวันที่ ผู้พูด เวลา พร้อมให้แก้ไขได้; โหมด 12 บรรทัดจะข้ามหัวข้อความและ Reply ที่ตรวจพบแบบระมัดระวัง แต่ทุกกรอบยังอยู่ให้ตรวจและเลือกกลับได้ ระบบไฮไลต์ข้อความที่ต่างกัน แต่<b>ไม่ได้ตัดสินว่าตัวไหนถูก</b> จนกว่าจะกรอกข้อความเฉลย</p>
+<h1>ChatLens · อ่านภาพแชท</h1>
+<p>Phase D.1c (ทดลอง) · เลือกภาพ Discord แล้วเริ่มอ่านได้เลย ไม่ต้องตั้งค่า ภาพและข้อความประมวลผลในเครื่อง</p>
 <div class="card">
- <h2>1. เลือกภาพและเริ่มทดลอง</h2>
+ <h2>1. เลือกภาพแชท</h2>
  <label for="photo">ภาพ Discord</label><input id="photo" type="file" accept="image/*">
+ <details id="advanced-settings"><summary>ตั้งค่าขั้นสูง (ไม่จำเป็นสำหรับการอ่านปกติ)</summary>
  <label for="scope">จำนวนบรรทัดที่จะเทียบ</label>
- <select id="scope"><option value="sample12">เลือกกระจายตามตำแหน่ง 12 บรรทัดเนื้อหา (แนะนำสำหรับ iPhone)</option><option value="bodyall">ทุกบรรทัดเนื้อหาที่ตรวจพบ (ไม่เกิน 60)</option><option value="all">ทุกกรอบที่อาจเป็นข้อความ รวมชื่อและเวลา (ไม่รวมภาพล้วนอัตโนมัติ)</option></select>
+ <select id="scope"><option value="sample12">เลือกกระจายตามตำแหน่ง 12 บรรทัดเนื้อหา (แนะนำสำหรับ iPhone)</option><option value="bodyall">ทุกบรรทัดเนื้อหาที่ตรวจพบ (ไม่เกิน 60)</option><option value="all" selected>ทุกกรอบข้อความที่ตรวจพบ (สูงสุด 60 กรอบ ไม่รวมภาพล้วน)</option></select>
  <label class="check"><input id="crop" type="checkbox" checked>ใช้ Auto Crop Discord</label>
   <label class="check"><input id="focus-body" type="checkbox" checked>โฟกัสเฉพาะข้อความเนื้อหา: กรองพิกเซลสีของรูป/อีโมจิ และให้ทั้งสอง OCR อ่านภาพครอปเดียวกัน (ทดลอง)</label>
  <label class="check"><input id="layout-focus" type="checkbox" checked>ทดลองแยกคอลัมน์เนื้อหาและปิดรูป/อีโมจิท้ายบรรทัดตามขอบเขตภาพ (ใช้คู่กับตัวกรองด้านบน ปิดได้หากตัวอักษรหาย)</label>
@@ -30,28 +32,32 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
  <label class="check"><input id="text-only" type="checkbox" checked>ทดลองแยกเฉพาะสีตัวอักษรในกรอบ OCR (ไม่ใช่ AI จำแนกรูป: อาจเหลือชิ้นส่วนภาพ หรือปิดสีข้อความผิดได้)</label>
   <label class="check"><input id="invert" type="checkbox" checked>กลับสีพื้นหลังมืดเป็นสว่างก่อนให้ OpenThai อ่าน (ทดลอง)</label>
  <label for="channels">ลำดับสีของ OpenThai</label><select id="channels"><option value="bgr">BGR (ค่าเริ่มต้น)</option><option value="rgb">RGB (ทางเลือกทดลอง)</option></select>
- <p class="help"><a href="#transcript-panel">↓ ดูร่างบทสนทนาตามผู้พูด (หลังตรวจภาพ)</a></p>
-  <div class="controls"><button id="start" type="button">เริ่มเปรียบเทียบหลายบรรทัด</button><button id="review" class="alt" type="button">ตรวจทั้งภาพ / เลือกข้อความสั้นที่ระบบข้าม</button><button id="stop" class="warn" type="button" disabled>หยุดหลังบรรทัดปัจจุบัน</button><button id="copy-safe" class="alt" type="button" disabled>คัดลอกสรุปเทคนิค (ไม่รวมแชท)</button></div>
+ <div class="controls"><button id="review" class="alt" type="button">ตรวจกรอบก่อนอ่าน (ขั้นสูง)</button></div>
+ </details>
+ <div class="controls"><button id="start" type="button">เริ่มอ่านบทสนทนา</button><button id="stop" class="warn" type="button" disabled hidden>หยุดหลังบรรทัดปัจจุบัน</button></div>
  <progress id="progress" max="1" value="0"></progress><p id="status" class="notice" role="status" aria-live="polite">พร้อมทดลอง · ไม่มีการอัปโหลดภาพหรือข้อความไปยังบริการ OCR</p>
- <p class="help">ภาพและข้อความอยู่ในหน่วยความจำเบราว์เซอร์ ไม่บันทึกลง localStorage และไม่ส่งเข้า GitHub/CDN มีการดาวน์โหลดโมเดลและ JavaScript จาก CDN/Hugging Face เท่านั้น การรันหลายบรรทัดอาจใช้เวลาหรือหน่วยความจำมากบนมือถือ</p>
+ <p class="help">ภาพและข้อความไม่ถูกอัปโหลด · ต้องใช้อินเทอร์เน็ตเพื่อโหลดโมเดลครั้งแรก · อ่านทีละกรอบ สูงสุด 60 กรอบต่อรอบ</p>
 </div>
-<details id="review-panel" class="card" hidden><summary id="review-summary" style="font-weight:700;cursor:pointer">ยังไม่ได้ตรวจบรรทัด</summary><p class="help">กรอบภาพล้วนจะไม่ถูกส่งให้ OCR อัตโนมัติ แต่ยังตรวจดูและติ๊กเองได้ ไม่มีกรอบไหนถูกลบจากภาพต้นฉบับ ติ๊กเพื่อเพิ่มข้อความสั้น ชื่อผู้ใช้ หรือ Reply ที่ตัวจำแนกข้ามไว้ได้สูงสุด 60 บรรทัด การเลือกเพิ่มใช้ทดสอบเท่านั้น ไม่เปลี่ยนข้อความต้นฉบับ</p><div id="review-lines" class="review-list"></div></details>
 <section class="card" id="transcript-panel" hidden>
- <h2>2. ร่างบทสนทนาตามผู้พูดและเวลา (ทดลอง)</h2>
- <p class="help">ใช้แถบสีชื่อผู้พูดช่วยแยกแถวชื่อและเวลาออกจากกรอบ Tesseract ก่อนอ่านซ้ำ; ใช้ OpenThai เมื่ออ่านเนื้อหาได้ และข้ามกรอบที่สงสัยเป็นรูปภาพโดยไม่สร้างข้อความจากรูป ถ้าไม่มีหลักฐานจะใช้ [ไม่ทราบผู้พูด] หรือ [ไม่ทราบวันที่] — กรุณาตรวจเทียบภาพก่อนคัดลอก</p>
+ <h2>2. บทสนทนา (ตรวจแก้ได้)</h2>
+ <p class="help">อ่านเสร็จแล้วตรวจชื่อ เวลา และข้อความกับภาพต้นฉบับ สามารถแก้ในช่องนี้ได้เลย</p>
  <textarea id="transcript-text" rows="16" spellcheck="false" aria-label="ร่างบทสนทนาที่แก้ไขได้"></textarea>
  <p class="help" id="transcript-warning"></p>
- <button id="copy-transcript" type="button">📋 คัดลอกแชทตามแพตเทิร์น</button>
+ <button id="copy-transcript" type="button">คัดลอกบทสนทนา</button>
  <button id="transcript-refresh" type="button" class="alt">สร้างร่างใหม่จากผล OCR (ทับข้อความแก้ไข)</button>
  </section>
+<details id="advanced-results" class="card"><summary>เครื่องมือทดสอบและผล OCR ขั้นสูง</summary>
+<details id="review-panel" class="card" hidden><summary id="review-summary" style="font-weight:700;cursor:pointer">ยังไม่ได้ตรวจบรรทัด</summary><p class="help">กรอบภาพล้วนจะไม่ถูกส่งให้ OCR อัตโนมัติ แต่ยังตรวจดูและติ๊กเองได้ ไม่มีกรอบไหนถูกลบจากภาพต้นฉบับ ติ๊กเพื่อเพิ่มข้อความสั้น ชื่อผู้ใช้ หรือ Reply ที่ตัวจำแนกข้ามไว้ได้สูงสุด 60 บรรทัด การเลือกเพิ่มใช้ทดสอบเท่านั้น ไม่เปลี่ยนข้อความต้นฉบับ</p><div id="review-lines" class="review-list"></div></details>
 <div class="card" id="report" hidden>
  <h2>3. ผลเทียบ OCR (สำหรับวินิจฉัย)</h2><div id="stats" class="stats"></div><p id="accuracy" class="notice">บรรทัดที่อ่านเหมือนกัน ไม่ได้แปลว่าอ่านถูก</p>
+ <button id="copy-safe" class="alt" type="button" disabled>คัดลอกสรุปเทคนิค (ไม่รวมแชท)</button>
  <button id="copy-text" class="alt" type="button">คัดลอกผลเทียบที่มีข้อความแชท</button>
  <p class="help">ช่องเฉลยควรใส่เฉพาะตัวอักษรที่ปรากฏจริงในกรอบที่ส่งเข้า OCR (ระบบจะไม่คำนวณ CER เมื่อมีวงเล็บบรรยายภาพ/อีโมจิ) อย่าใส่คำอธิบายแทนภาพ เช่น (โปรไฟล์) หรือ (อิโมจิ) มิฉะนั้น CER จะคลาดเคลื่อน โหมดกรองอาจลบอีโมจิที่อยู่ในเนื้อหาจริงด้วย ใช้เพื่อทดสอบเท่านั้น</p>
   <p class="help">ปุ่มนี้คัดลอกข้อความแชทจริง โปรดระวังเมื่อนำไปแชร์ ส่วนปุ่มสรุปเทคนิคด้านบนไม่รวมเนื้อหาแชท</p>
 </div>
 
  <details id="technical-results" class="card"><summary style="cursor:pointer;font-weight:700">🔎 ดูกรอบ OCR รายบรรทัด (สำหรับตรวจข้อผิดพลาด)</summary><div id="results" class="results" aria-live="off"></div></details>
+</details>
 <div id="fallback" class="card" hidden><label for="fallback-text">เลือกคัดลอกข้อความนี้ด้วยตนเอง</label><textarea id="fallback-text" rows="10"></textarea></div>
-<div class="card"><h2>ขอบเขตของการทดลอง</h2><p>คำว่า "กรอบ" ในหน้านี้ไม่ใช่จำนวนข้อความ Discord จริง เพราะ Tesseract อาจตรวจพบรูปภาพ/โปรไฟล์เป็นกรอบ OCR ด้วย ตัวทดลองนี้ยังไม่ใช่ตัวแยกโครงสร้าง Discord เต็มระบบ และอาจพลาดข้อความที่ Tesseract ไม่ตรวจพบเลย ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></div>
-</main><script type="module" src="./batch.js?build=phase-d1b-20261127"></script></body></html>
+<details class="card"><summary>ขอบเขตของการทดลอง</summary><p>คำว่า "กรอบ" ในหน้านี้ไม่ใช่จำนวนข้อความ Discord จริง เพราะ Tesseract อาจตรวจพบรูปภาพ/โปรไฟล์เป็นกรอบ OCR ด้วย ตัวทดลองนี้ยังไม่ใช่ตัวแยกโครงสร้าง Discord เต็มระบบ และอาจพลาดข้อความที่ Tesseract ไม่ตรวจพบเลย ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></details>
+</main><script type="module" src="./batch.js?build=phase-d1c-20261128"></script></body></html>

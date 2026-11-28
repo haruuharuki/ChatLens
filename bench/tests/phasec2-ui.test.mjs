@@ -10,7 +10,7 @@ test('Phase C.2 has opt-out geometry plus a review panel for skipped lines',()=>
  assert.match(html,/id="review-panel"/);
  assert.match(html,/id="review-lines"/);
  assert.match(html,/id="review"/);
- assert.match(html,/batch\.js\?build=phase-d1b-20261127/);
+ assert.match(html,/batch\.js\?build=phase-d1c-20261128/);
 });
 test('all DOM element IDs used by C.2 code exist in HTML',()=>{
  const ids=[...js.matchAll(/\$\('([\w-]+)'\)/g)].map(m=>m[1]);
@@ -61,3 +61,11 @@ test('Phase D.1 run refreshes transcript using OpenThai candidates but preserves
 });
 
 test('D.1b independent-header detection is reversible and reads name-only strip',()=>{assert.match(html,/id="layout-headers"/);assert.match(js,/combineRecognizedHeader/);assert.match(js,/nameBox=\{\.\.\.headerBox/);});
+
+test('D.1c simple default selects all text and puts editable transcript before advanced results',()=>{
+ assert.match(html,/<option value="all" selected>/);
+ assert.ok(html.indexOf('id="advanced-settings"')<html.indexOf('id="scope"'));
+ assert.ok(html.indexOf('id="transcript-panel"')<html.indexOf('id="advanced-results"'));
+ assert.doesNotMatch(html,/<details id="advanced-(?:settings|results)"[^>]*\bopen\b/);
+ assert.match(js,/if\(!nearby&&!parseDiscordTimestamp\(reread\)\)continue;/);
+});

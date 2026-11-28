@@ -1,16 +1,17 @@
 import {discordCropRect} from '../lib/scan-utils.mjs';
 import {extractOCRLines} from '../lib/discord-structure.mjs';
 import {evaluateAlignedSamples,evaluateText} from './metrics.mjs';
-import {chooseBatchLines,compareRuns,safeBatchReport} from './batch-core.mjs';
+import {chooseBatchLines,compareRuns,safeBatchReport} from './batch-core.mjs?v=d1c';
 import {MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,OPEN_THAI_REVISION,recognitionSize,recognitionTensorFromRGBA,greedyCTC,parseDictionary,usableLineBox} from './openthai-core.mjs';
 import {runtimeSources,diagnosticReport} from './runtime-loader.mjs';
-import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs';
+import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs?v=d1c';
 import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
-import {auditDetectedRegion,extendTextRight} from './region-audit.mjs';
+import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript} from './text-transcript.mjs';
-import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d1c';
+import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d1c';
 
+import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null,dictionary=null;
@@ -19,7 +20,7 @@ let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[
 let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
 let transcriptEdited=false;
 function say(text){$('status').textContent=text;}
-function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;}
+function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
  const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
@@ -66,28 +67,31 @@ async function detectLines(file){
   const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height):[];
   if(bands.length){
    const original=ocrLines;
-   const separation=splitBoxesAtHeaders(original,bands,imageCanvas.width);
-   const improved=[];
+   const accepted=[],headers=[];
+   for(const band of bands){
+    const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
+    const overlaps=original.filter(l=>Math.min(l.bbox.y1,band.y1)-Math.max(l.bbox.y0,band.y0)>=Math.min(12,(l.bbox.y1-l.bbox.y0)*.35));
+    if(overlaps.some(l=>l.kind==='reply'))continue;
+    const nearby=overlaps.filter(l=>['header','mixed'].includes(l.kind))
+      .map(l=>String(l.text||'').replace(/\s+/g,' ').trim())
+      .find(t=>parseDiscordTimestamp(t,{allowBare24:true}));
+    const reread=await rereadRegion({bbox:headerBox},'header');
+    if(!nearby&&!parseDiscordTimestamp(reread))continue;
+    const nameBox={...headerBox,x1:Math.min(headerBox.x1,Math.max(headerBox.x0+24,band.nameEnd+12))};
+    const nameOnly=await rereadRegion({bbox:nameBox},'header');
+    const {text,usedNameOnly}=combineRecognizedHeader({full:reread,nameOnly,nearby});
+    if(!parseHeader(text,'header'))continue;
+    accepted.push(band);
+    headers.push({text,bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านชื่อและเวลา':'ตรวจแถวชื่อจากตำแหน่งภาพ (ยังต้องตรวจชื่อ)',layoutHeader:true});
+   }
+   const separation=splitBoxesAtHeaders(original,accepted,imageCanvas.width);
+   const improved=[...headers];
    for(const l of separation.lines){
     if(l.needsBodyRead){
      const box={...l.bbox,x1:Math.min(imageCanvas.width,Math.max(l.bbox.x1,Math.round(imageCanvas.width*.95)))};
      const text=await rereadRegion({...l,bbox:box},'body');
      improved.push({...l,bbox:box,text,needsBodyRead:false});
     }else improved.push(l);
-   }
-   for(const band of bands){
-    const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
-    const nearby=original.filter(l=>l.bbox.y0<band.y1+14&&l.bbox.y1>band.y0-14)
-      .map(l=>String(l.text||'').replace(/\s+/g,' ').trim())
-      .find(t=>/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i.test(t));
-    const reread=await rereadRegion({bbox:headerBox},'header');
-    // The colored username ends before Discord's gray role badge.
-    // Read a second name-only crop; combine only with a clock visible in
-    // this image. Raw header and candidate remain reviewable.
-    const nameBox={...headerBox,x1:Math.min(headerBox.x1,Math.max(headerBox.x0+24,band.nameEnd+12))};
-    const nameOnly=await rereadRegion({bbox:nameBox},'header');
-    const {text,usedNameOnly}=combineRecognizedHeader({full:reread,nameOnly,nearby});
-    improved.push({text,bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านเฉพาะสีชื่อผู้พูด แล้วจับเวลาจากกรอบหัวข้อความ':'ตรวจแถวชื่อด้วยสีและตำแหน่งภาพก่อน OCR (ยังต้องตรวจชื่อ)',layoutHeader:true});
    }
    ocrLines=improved.sort((a,b)=>a.bbox.y0-b.bbox.y0||a.bbox.x0-b.bbox.x0);
   }
@@ -352,7 +356,7 @@ async function reviewOnly(){
  if(busy)return;const file=$('photo').files?.[0];if(!file){say('เลือกภาพ Discord ก่อนจ้า');return;}
  toggleBusy(true);
  try{
-  await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('review-panel').open=true;refreshTranscript(true);
+  await detectLines(file);if(!reviewReady)defaultReviewSelection();renderReview();$('advanced-results').open=true;$('review-panel').open=true;refreshTranscript(true);
   say(`ตรวจพบ ${ocrLines.length} กรอบ (ไม่ใช่จำนวนแชท) · เลือกไว้ ${reviewSelection.size} · เลือกข้อความสั้น/Reply เพิ่มได้ก่อนเริ่มเปรียบเทียบ`);
  }catch(err){say('ตรวจภาพไม่สำเร็จ: '+String(err?.message||'ไม่ทราบสาเหตุ'));}
  finally{toggleBusy(false);}
@@ -365,7 +369,7 @@ async function run(){
   await detectLines(file);
   if(!reviewReady){defaultReviewSelection();renderReview();}
   const selected=[...reviewSelection].sort((a,b)=>a-b).filter(i=>i>=0&&i<ocrLines.length).map(index=>({line:ocrLines[index],index}));
-  if(!selected.length)throw new Error('ยังไม่ได้เลือกบรรทัดเลย เปิดหน้าทบทวนแล้วเลือกอย่างน้อย 1 บรรทัด');
+  if(!selected.length){say('ไม่พบกรอบข้อความที่อ่านได้อัตโนมัติ · ตรวจภาพหรือเปิดเครื่องมือทดสอบขั้นสูง');return;}
   // Preserve any user-edited transcript while OCR results update.
   items=selected.map(({line,index})=>({line,index,rawBaseline:line.text,baseline:line.text,candidate:null,error:null,truth:'',dom:null,prepared:preparedLineCanvas(line)}));
   $('progress').max=items.length;$('report').hidden=false;
@@ -391,7 +395,7 @@ async function run(){
    // Yield after each line so Safari can paint progress and handle cancel.
    await new Promise(resolve=>setTimeout(resolve,0));
   }
-  const c=counts();say(wasCancelled?`หยุดแล้ว · OpenThai สำเร็จ ${c.done.length}/${items.length} บรรทัด`:`✓ เปรียบเทียบเสร็จ ${c.done.length}/${items.length} บรรทัด · ผลเหมือนกัน ${c.identical} / ต่างกัน ${c.different} · ยังต้องดูภาพเฉลยเพื่อตัดสินความแม่น`);
+  const c=counts();say(wasCancelled?`หยุดแล้ว · ร่างอาจไม่ครบ (${c.done.length}/${items.length} กรอบ)`:`✓ อ่านเสร็จ ${c.done.length}/${items.length} กรอบ · ตรวจร่างบทสนทนาด้านล่างก่อนคัดลอก`);
  }catch(err){
   const safe=diagnosticReport({stage,version:ORT_VERSION,attempts:runtimeAttempts,error:err});
   say('⚠️ การทดลองไม่สำเร็จในขั้น '+stage+'\n'+safe+'\nข้อความแชทไม่ได้ถูกส่งออกจากเครื่อง');
@@ -401,9 +405,9 @@ $('start').addEventListener('click',run);
 $('review').addEventListener('click',reviewOnly);
 $('scope').addEventListener('change',()=>{if(reviewReady){defaultReviewSelection();renderReview();say('อัปเดตชุดตัวเลือกตามโหมดแล้ว · สามารถติ๊กเพิ่มหรือยกเลิกก่อนกดเริ่ม');}});
 $('stop').addEventListener('click',()=>{stopRequested=true;$('stop').disabled=true;say('รับคำสั่งหยุดแล้ว · จะหยุดหลังบรรทัดปัจจุบัน (ไม่สามารถตัด ONNX ระหว่าง inference ได้)');});
-$('layout-headers').addEventListener('change',()=>{imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;say('เปลี่ยนตัวเลือกแยกแถวชื่อแล้ว · กดตรวจทั้งภาพอีกครั้ง');});
-$('photo').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
-$('crop').addEventListener('change',()=>{imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
+$('layout-headers').addEventListener('change',()=>{transcriptEdited=false;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;say('เปลี่ยนตัวเลือกแยกแถวชื่อแล้ว · กดตรวจทั้งภาพอีกครั้ง');});
+$('photo').addEventListener('change',()=>{transcriptEdited=false;$('advanced-settings').open=false;$('advanced-results').open=false;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('transcript-panel').hidden=true;$('results').replaceChildren();$('copy-safe').disabled=true;});
+$('crop').addEventListener('change',()=>{transcriptEdited=false;$('transcript-panel').hidden=true;imagePixels=null;imageCanvas=null;scannedFile=null;ocrLines=[];items=[];clearReview();$('report').hidden=true;$('results').replaceChildren();});
 $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
 $('transcript-text').addEventListener('input',()=>{transcriptEdited=true;});

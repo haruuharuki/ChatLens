@@ -4,7 +4,7 @@
  */
 import {graphemes,normalizeForComparison} from './metrics.mjs';
 
-const CLOCK=/\b(?:0?[1-9]|1[0-2])[:.][0-5]\d\s*(?:AM|PM)\b/i;
+import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const THAI=/[\u0E01-\u0E5B]/u;
 export const MAX_BATCH_LINES=60;
 
@@ -16,7 +16,7 @@ export function chooseBatchLines(lines,mode='sample12',max=MAX_BATCH_LINES){
   if(line.kind && !['body','mixed'].includes(line.kind))return false;
   const text=String(line.text).trim();
   return THAI.test(text)&&graphemes(text).length>=7&&
-   (line.kind==='mixed'||(!CLOCK.test(text)&&!/^[@#]/u.test(text)));
+   (line.kind==='mixed'||(!parseDiscordTimestamp(text)&&!/^[@#]/u.test(text)));
  });
  // 'All' means all text candidates; photo/avatar regions stay reviewable but
  // are never sent to recognizers by default. Users can tick one explicitly.
