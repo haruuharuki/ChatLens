@@ -1,15 +1,15 @@
-import {discordCropRect} from '../lib/scan-utils.mjs';
+import {benchmarkCropRect} from './safe-crop.mjs?v=d2a';
 import {extractOCRLines} from '../lib/discord-structure.mjs';
 import {evaluateAlignedSamples,evaluateText} from './metrics.mjs';
 import {chooseBatchLines,compareRuns,safeBatchReport} from './batch-core.mjs?v=d1c';
 import {MODEL_PATH,DICTIONARY_PATH,ORT_VERSION,OPEN_THAI_REVISION,recognitionSize,recognitionTensorFromRGBA,greedyCTC,parseDictionary,usableLineBox} from './openthai-core.mjs';
 import {runtimeSources,diagnosticReport} from './runtime-loader.mjs';
 import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-guard.mjs?v=d1c';
-import {inferBodyTextAnchor,isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
+import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
 import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d1c';
-import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d1c';
+import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d2a';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const $=id=>document.getElementById(id);
@@ -17,13 +17,14 @@ const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesser
 let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null,dictionary=null;
 let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
-let bodyTextAnchor=null,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
+let cropApplied=false,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
 let transcriptEdited=false;
 function say(text){$('status').textContent=text;}
 function toggleBusy(on){busy=on;$('start').disabled=on;$('photo').disabled=on;$('scope').disabled=on;$('crop').disabled=on;$('channels').disabled=on;$('invert').disabled=on;$('focus-body').disabled=on;$('layout-focus').disabled=on;$('extend-text').disabled=on;$('layout-headers').disabled=on;$('text-only').disabled=on;$('review').disabled=on;$('stop').disabled=!on;$('stop').hidden=!on;}
 function makeStat(label,value){const e=document.createElement('div');e.className='stat';const name=document.createElement('small');name.textContent=label;const strong=document.createElement('strong');strong.textContent=value;e.append(name,strong);return e;}
 function setImageCanvas(image){
- const crop=discordCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
+ const crop=benchmarkCropRect(image.naturalWidth,image.naturalHeight,$('crop').checked);
+ cropApplied=crop.cropped;
  const scale=Math.min(1,1500/crop.width);const c=document.createElement('canvas');
  c.width=Math.max(1,Math.round(crop.width*scale));c.height=Math.max(1,Math.round(crop.height*scale));
  c.getContext('2d',{willReadFrequently:true}).drawImage(image,crop.x,crop.y,crop.width,crop.height,0,0,c.width,c.height);
@@ -60,11 +61,10 @@ async function detectLines(file){
   const heights=ocrLines.map(x=>x.bbox.y1-x.bbox.y0).filter(h=>h>=11&&h<=imageCanvas.height*.08).sort((a,b)=>a-b);
   const typicalHeight=heights.length?heights[Math.floor(heights.length*.5)]:0;
   ocrLines=ocrLines.map(line=>{const audit=auditDetectedRegion(line,pixels,imageCanvas.width,imageCanvas.height,{typicalHeight});return {...line,...audit};});
-  bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
   // Phase D.1: use author-colored layout as an INDEPENDENT source of candidate
   // headers, not Tesseract's sometimes mixed header+body boxes. Re-OCR narrow
   // horizontal strips before building the transcript. Source image unchanged.
-  const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height):[];
+  const bands=$('layout-headers').checked?discoverHeaderBands(pixels,imageCanvas.width,imageCanvas.height,{leftFraction:cropApplied?.025:.07}):[];
   if(bands.length){
    const original=ocrLines;
    const accepted=[],headers=[];
@@ -95,7 +95,6 @@ async function detectLines(file){
    }
    ocrLines=improved.sort((a,b)=>a.bbox.y0-b.bbox.y0||a.bbox.x0-b.bbox.x0);
   }
-  bodyTextAnchor=inferBodyTextAnchor(ocrLines,imageCanvas.width);
 }
 /** Targeted second pass: geometry is known; never include pixels outside it. */
 async function rereadRegion(line,kind){
@@ -182,8 +181,8 @@ function preparedLineCanvas(line){
  // don't pretend that the image-cleanup heuristics understand their meaning.
  if(!focus||!['body','mixed'].includes(line.kind))return maybeTextOnly(c,{cleaned:false,layout:null,expansion:0,mixedBand:false,graphic:line.kind==='graphic'});
  const rgba=ctx.getImageData(0,0,c.width,c.height);
- const layout=geometry?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:bodyTextAnchor}):null;
- const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:$('crop').checked});
+ const layout=geometry?isolateBodyLayoutRGBA(rgba.data,c.width,c.height,{absoluteX:x0,anchorX:null}):null;
+ const cleaned=cleanBodyLineRGBA(layout?.pixels??rgba.data,c.width,c.height,{absoluteX:x0,canvasWidth:imageCanvas.width,enableAvatarGuard:false});
  rgba.data.set(cleaned.pixels);ctx.putImageData(rgba,0,0);
  const metadata={cleaned:true,layout,expansion:expansion?Math.max(0,Math.round(expansion-b.x1)):0,mixedBand:Boolean(mixedBand)};
  if(cleaned.band&&cleaned.band.bottom>cleaned.band.top){
@@ -316,7 +315,7 @@ async function copyOrShow(text){
 }
 /** Reviews ALL detected OCR rows locally, including short speech and replies. */
 function clearReview(){
- reviewReady=false;reviewSelection=new Set();bodyTextAnchor=null;
+ reviewReady=false;reviewSelection=new Set();
  $('review-panel').hidden=true;$('review-lines').replaceChildren();$('review-summary').textContent='ยังไม่ได้ตรวจบรรทัด';
 }
 function updateReviewSummary(){

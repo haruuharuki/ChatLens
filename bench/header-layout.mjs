@@ -11,9 +11,9 @@ const clamp = (v,min,max) => Math.max(min,Math.min(max,v));
  * Reject small colorful icons, narrow emojis, and reply previews indented more
  * than a normal author name. Return candidate geometry, NOT accepted names.
  */
-export function discoverHeaderBands(pixels,width,height){
+export function discoverHeaderBands(pixels,width,height,{leftFraction=.07}={}){
  if(!pixels||pixels.length!==width*height*4||width<240||height<150)return [];
- const left=Math.round(width*.07),right=Math.round(width*.86),counts=new Uint16Array(height);
+ const left=Math.round(width*leftFraction),right=Math.round(width*.86),counts=new Uint16Array(height);
  const rowMin=new Int32Array(height).fill(width),rowMax=new Int32Array(height).fill(-1);
  for(let y=0;y<height;y++)for(let x=left;x<right;x+=2){
   const i=(y*width+x)*4;
@@ -60,7 +60,7 @@ export function splitBoxesAtHeaders(lines,bands,width){
   if(b.y1-lower>=17 && b.y1-b.y0<=170){
    // Lower band must start under the colored name row. We deliberately do not
    // reuse mixed OCR: it contains a header, so caller must re-read this crop.
-   out.push({...line,kind:'body',bbox:{x0:Math.max(b.x0,Math.round(width*.075)),y0:lower,
+   out.push({...line,kind:'body',bbox:{x0:b.x0,y0:lower,
      x1:b.x1,y1:b.y1},text:'',needsBodyRead:true,reason:'แยกข้อความใต้แถวชื่อด้วยตำแหน่งภาพ'});
    split++;
   }else{out.push({...line,kind:'covered',reason:'อ่านแถวชื่อแยกต่างหาก'});covered++;}
