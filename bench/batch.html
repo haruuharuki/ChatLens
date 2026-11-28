@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#141923">
-<title>ChatLens — Phase D.5e</title>
+<title>ChatLens — Phase E.1</title>
 <style>
 :root{color-scheme:dark;font-family:system-ui,-apple-system,"Noto Sans Thai",sans-serif;color:#f1f0fb;background:#12151e}
 *{box-sizing:border-box}body{margin:0}main{max-width:880px;margin:auto;padding:16px 14px 88px}a{color:#bbb0ff}h1{font-size:1.5rem;margin:.5rem 0}h2{font-size:1.1rem}p{color:#c8cbd9;line-height:1.55}small,.muted{color:#aeb5ce}.card{background:#1d2130;border:1px solid #40445e;border-radius:16px;padding:16px;margin:16px 0}.notice{background:#141a2b;border:1px solid #565a76;border-radius:10px;padding:12px;overflow-wrap:anywhere;white-space:pre-wrap}
@@ -12,15 +12,17 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
 .stats{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}.stat{background:#101627;border-radius:10px;padding:10px}.stat strong{display:block;font-size:1.15rem}.results{display:grid;gap:12px}.result-row{background:#161b29;border:1px solid #424760;border-radius:13px;padding:12px}.row-head{display:flex;gap:8px;align-items:center;justify-content:space-between}.row-head strong{font-size:1rem}.tag{font-size:.8rem;padding:4px 8px;border-radius:99px;background:#3a405b;white-space:nowrap}.tag.same{background:#254d42}.tag.diff{background:#69502c}.tag.fail{background:#633e4a}.original{background:#10131d;border:1px solid #46445a;border-radius:9px;padding:6px;width:100%;max-height:86px;object-fit:contain;object-position:left center;margin:10px 0}.pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}.pair > div{min-width:0}.pair-title{color:#bcb5f7;font-size:.86rem;margin-bottom:5px}.recognized{white-space:pre-wrap;overflow-wrap:anywhere;background:#0b1120;border:1px solid #38405d;padding:9px;border-radius:9px;min-height:80px;line-height:1.5}.changed{background:#88602e;color:#fff7dc;border-radius:2px}.truth{margin:10px 0 0}.truth textarea{min-height:62px}.score{font-size:.85rem;color:#c0baf5;margin-top:6px}.help{font-size:.87rem;color:#b9bccd}.review-list{display:grid;gap:7px;max-height:58vh;overflow:auto;margin-top:10px}.review-item{display:flex;align-items:flex-start;gap:10px;border:1px solid #484e65;border-radius:9px;padding:9px;margin:0;font-weight:400;cursor:pointer}.review-item input{flex:none;margin-top:8px;min-width:18px;min-height:18px}.review-desc{min-width:0;flex:1;display:grid;gap:3px}.review-desc strong{font-size:.87rem}.review-desc small{font-size:.79rem}.review-image{display:block;width:100%;max-height:54px;object-fit:contain;object-position:left center;background:#111521;border-radius:5px}.review-item:has(input:checked){border-color:#a69af2}
 @media(max-width:560px){main{padding:13px 12px 80px}.pair{grid-template-columns:1fr}.controls{grid-template-columns:1fr}.controls button:first-child{grid-column:auto}.card{padding:13px}.recognized{min-height:0}}
 [hidden]{display:none!important}summary{cursor:pointer;font-weight:650}#copy-transcript{width:100%;margin:8px 0}#transcript-refresh{font-size:.85rem}
+.queue-list{padding:0;list-style:none;display:grid;gap:6px}.queue-list li{display:flex;gap:6px;align-items:center;border:1px solid #40445e;padding:8px;border-radius:10px}.queue-list span{flex:1;min-width:0;overflow-wrap:anywhere}.queue-list button{min-width:46px;padding:8px}
 </style>
 </head>
 <body><main>
 <p><a href="./">← OCR Benchmark</a> · <a href="openthai.html">ทดสอบทีละบรรทัด</a> · <a href="../">ChatLens หลัก</a></p>
 <h1>ChatLens · อ่านภาพแชท</h1>
-<p>Phase D.5e (ทดลอง) · เลือกภาพ Discord แล้วเริ่มอ่านได้เลย ไม่ต้องตั้งค่า ภาพและข้อความประมวลผลในเครื่อง</p>
+<p>Phase E.1 (ทดลอง) · เลือกภาพ Discord หนึ่งภาพหรือหลายภาพ แล้วเริ่มอ่านได้เลย ไม่ต้องตั้งค่า ภาพและข้อความประมวลผลในเครื่อง</p>
 <div class="card">
  <h2>1. เลือกภาพแชท</h2>
- <label for="photo">ภาพ Discord</label><input id="photo" type="file" accept="image/*">
+ <label for="photo">ภาพ Discord</label><input id="photo" type="file" accept="image/*" multiple>
+ <section id="queue-panel" hidden><p class="help">ตรวจลำดับภาพจากบนลงล่างก่อนเริ่ม · สูงสุด 20 ภาพต่อชุด · ยังไม่ตัดข้อความซ้อนระหว่างภาพ</p><ol id="queue-list" class="queue-list"></ol><label for="queue-progress">ความคืบหน้าทั้งชุด</label><progress id="queue-progress" max="1" value="0"></progress><button id="queue-copy-safe" type="button" class="alt" disabled>คัดลอกสรุปเทคนิคทั้งชุด (ไม่รวมแชท)</button></section>
  <details id="advanced-settings"><summary>ตั้งค่าขั้นสูง (ไม่จำเป็นสำหรับการอ่านปกติ)</summary>
  <label for="scope">จำนวนบรรทัดที่จะเทียบ</label>
  <select id="scope"><option value="sample12">เลือกกระจายตามตำแหน่ง 12 บรรทัดเนื้อหา (แนะนำสำหรับ iPhone)</option><option value="bodyall">ทุกบรรทัดเนื้อหาที่ตรวจพบ (ไม่เกิน 60)</option><option value="all" selected>ทุกกรอบข้อความที่ตรวจพบ (สูงสุด 60 กรอบ ไม่รวมภาพล้วน)</option></select>
@@ -36,7 +38,7 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
  </details>
  <div class="controls"><button id="start" type="button">เริ่มอ่านบทสนทนา</button><button id="stop" class="warn" type="button" disabled hidden>หยุดหลังบรรทัดปัจจุบัน</button></div>
  <progress id="progress" max="1" value="0"></progress><p id="status" class="notice" role="status" aria-live="polite">พร้อมทดลอง · ไม่มีการอัปโหลดภาพหรือข้อความไปยังบริการ OCR</p>
- <p class="help">ภาพและข้อความไม่ถูกอัปโหลด · ต้องใช้อินเทอร์เน็ตเพื่อโหลดโมเดลครั้งแรก · อ่านทีละกรอบ สูงสุด 60 กรอบต่อรอบ</p>
+ <p class="help">ภาพและข้อความไม่ถูกอัปโหลด · ต้องใช้อินเทอร์เน็ตเพื่อโหลดโมเดลครั้งแรก · อ่านทีละกรอบ สูงสุด 60 กรอบต่อภาพ</p>
 </div>
 <section class="card" id="transcript-panel" hidden>
  <h2>2. บทสนทนา (ตรวจแก้ได้)</h2>
@@ -60,4 +62,4 @@ label{display:block;margin:13px 0 7px;font-weight:650}input[type=file],select,te
 </details>
 <div id="fallback" class="card" hidden><label for="fallback-text">เลือกคัดลอกข้อความนี้ด้วยตนเอง</label><textarea id="fallback-text" rows="10"></textarea></div>
 <details class="card"><summary>ขอบเขตของการทดลอง</summary><p>คำว่า "กรอบ" ในหน้านี้ไม่ใช่จำนวนข้อความ Discord จริง เพราะ Tesseract อาจตรวจพบรูปภาพ/โปรไฟล์เป็นกรอบ OCR ด้วย ตัวทดลองนี้ยังไม่ใช่ตัวแยกโครงสร้าง Discord เต็มระบบ และอาจพลาดข้อความที่ Tesseract ไม่ตรวจพบเลย ตัวตรวจจับตำแหน่งบรรทัดยังใช้ Tesseract.js; OpenThai ใช้เพียงโมเดล <code>rec.onnx</code> + พจนานุกรม และ ONNX Runtime Web ผ่าน WASM ไม่ใช่ระบบ OpenThai เต็มที่มี det/rec2 และการแก้ภาษาไทยครบถ้วน ผลเปรียบเทียบนี้ยังไม่ใช่ความแม่นของ ChatLens ทั้งห้องแชท</p></details>
-</main><script type="module" src="./batch.js?build=phase-d5e-20261128"></script></body></html>
+</main><script type="module" src="./batch.js?build=phase-e1-20261128"></script></body></html>
