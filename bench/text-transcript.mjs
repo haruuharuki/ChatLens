@@ -69,8 +69,8 @@ export function assembleTextTranscript(rows=[]){
  function pushBody(text,box,row){const s=scrub(text);if(!substantive(s)||isUI(s))return;
    if(!current){current={speaker:null,time:null,date,reply:null,parts:[],uncertain:true};}
    if(current.lastY!==undefined&&box&&box.y0-current.lastY>180&&current.speaker){flush();current={speaker:null,time:null,date,reply:null,parts:[],uncertain:true};warnings.push('ข้อความแยกห่างจากหัวข้อความมาก จึงไม่เดาผู้พูด');}
-   if(row?.paragraphBefore&&current.parts.length)current.parts.push('');
-   if(row?.bullet&&row.bulletRead&&!row.truth){current.parts.push('- '+s);}else current.parts.push(s);current.lastY=box?.y1;
+   const paragraph=Boolean(row?.paragraphBefore&&current.parts.length);if(paragraph)current.parts.push('');
+   const line=row?.bullet&&row.bulletRead&&!row.truth?'- '+s:s;current.parts.push(line);(current.sourceLines??=[]).push({text:line,box,paragraph});current.lastY=box?.y1;
  }
  for(let index=0;index<ordered.length;index++){
    const r=ordered[index];
@@ -90,7 +90,7 @@ export function assembleTextTranscript(rows=[]){
    }
    if(head){
      if(r.clippedName){head={...head,speaker:null};warnings.push('ชื่อผู้พูดถูกตัดขอบภาพ — ไม่เดาชื่อ');}
-     flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:Boolean(r.clippedName),lastY:r.bbox.y1};pendingReply=null;
+     flush();if(head.date&&head.date!==date){date=head.date;output.push({dateMarker:date});}current={speaker:head.speaker,time:head.time,date,reply:pendingReply,parts:[],uncertain:Boolean(r.clippedName),headerBox:r.bbox,lastY:r.bbox.y1};pendingReply=null;
      const mixedBody=kind==='mixed'?(scrub(r.truth)||(!r.error&&r.bodyOnly!==false&&substantive(r.candidate)?(r.bodyOnly?selectBilingualText(r.candidate,r.baseline,r.baseline,{reconcileMarks:false}):scrub(r.candidate)):head.tail)):head.tail;
      const source=r.headerTailBox??(r.bodyBand?{...r.bbox,y0:r.bbox.y0+r.bodyBand.top,y1:r.bbox.y0+r.bodyBand.bottom}:r.bbox);
      if(mixedBody&&substantive(mixedBody)){

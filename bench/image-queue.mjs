@@ -1,4 +1,5 @@
-// E.1: queue order is explicit. No cross-image identity or deduplication yet.
+// E.2: queue order is explicit. Cross-image merging requires visual overlap.
+import {mergeQueueRecords} from './queue-merge.mjs?v=e2';
 export const MAX_QUEUE_IMAGES=20;
 export function moveQueueItem(entries,index,delta){
  const next=index+delta;
@@ -13,7 +14,7 @@ export async function runImageQueue(files,{read,stopped=()=>false,changed=()=>{}
   results[i]={state:'reading',text:'',diagnostic:''};changed(results,i);
   try{
    const result=await read(files[i],i);
-   results[i]={state:['done','partial','failed','cancelled'].includes(result.state)?result.state:'failed',text:String(result.text||''),diagnostic:String(result.diagnostic||'')};
+   results[i]={state:['done','partial','failed','cancelled'].includes(result.state)?result.state:'failed',text:String(result.text||''),diagnostic:String(result.diagnostic||''),...(result.state==='done'&&result.records?{records:result.records}:{})};
   }catch(_){results[i]={state:'failed',text:'',diagnostic:'Image processing failed'};}
   changed(results,i);
   if(results[i].state==='cancelled')break;
@@ -21,6 +22,7 @@ export async function runImageQueue(files,{read,stopped=()=>false,changed=()=>{}
  return results;
 }
 export function formatQueueTranscript(results){
+ if(results.some(r=>r.records))return mergeQueueRecords(results).text;
  return results.map((r,i)=>{
   const title=`--- ภาพ ${i+1} ---`;
   if(r.state==='done')return title+'\n'+r.text;
