@@ -5,12 +5,12 @@ const html=readFileSync(new URL('../batch.html',import.meta.url),'utf8');
 const js=readFileSync(new URL('../batch.js',import.meta.url),'utf8');
 
 test('Phase C.2 has opt-out geometry plus a review panel for skipped lines',()=>{
- assert.match(html,/Phase D\.5a/);
+ assert.match(html,/Phase D\.5a\.1/);
  assert.match(html,/id="layout-focus"/);
  assert.match(html,/id="review-panel"/);
  assert.match(html,/id="review-lines"/);
  assert.match(html,/id="review"/);
- assert.match(html,/batch\.js\?build=phase-d5a-20261128/);
+ assert.match(html,/batch\.js\?build=phase-d5a1-20261128/);
 });
 test('all DOM element IDs used by C.2 code exist in HTML',()=>{
  const ids=[...js.matchAll(/\$\('([\w-]+)'\)/g)].map(m=>m[1]);
@@ -77,4 +77,11 @@ test('D.2c.3–4 + D.3a wires pre-OCR backup, structural classification and raw 
  assert.match(js,/rereadRegion\(\{bbox:tightName\|\|nameBox\},'header',tightName\?2:1\)/);
  assert.match(js,/ocrLines=classifyStructure\(/);
  assert.match(js,/needsAlternateReading\(item\.baseline,item\.candidate,item\.error\)/);
+});
+
+test('D5a1 uses narrow band guard and aligned clock before header partition',()=>{
+ assert.match(js,/headerBandBlocked\(headerBox,overlaps,/);
+ assert.match(js,/headerClockAligned\(headerBox,l\)/);
+ assert.match(js,/if\(primary\?\.mention\)/);
+ assert.doesNotMatch(js,/overlaps\.some\(l=>l.kind==='reply'\|\|l.mention\)/);
 });

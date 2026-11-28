@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {conversationCrop,bulletRegion,replyTextLeft,refineSemanticRows} from '../d4-layout.mjs';
+import {conversationCrop,bulletRegion,replyTextLeft,refineSemanticRows,headerBandBlocked,headerClockAligned} from '../d4-layout.mjs';
+import {splitBoxesAtHeaders} from '../header-layout.mjs';
+import {redundantSplit} from '../region-plan.mjs';
 import {assembleTextTranscript} from '../text-transcript.mjs';
 import {resolveNameEvidence} from '../name-evidence.mjs';
 const W=500,H=900,col={x:65,samples:8};
@@ -60,4 +62,33 @@ test('D5a taller overlapping short fragment retains unique ink; clipped recovery
  paint(p,box(69,176,100,200));let r=refineSemanticRows([head,a,b],p,W,H,col);
  assert.equal(r[1].kind,'covered');assert.equal(r[2].kind,'fragment');
  paint(p,box(70,148,84,154));r=refineSemanticRows([head,a,b],p,W,H,col);assert.equal(r[1].kind,'body');
+});
+
+// Geometry scaled to a synthetic viewport: one OCR container includes the
+// clock and part of a separately observed highlighted message underneath.
+test('D5a1 mixed container keeps author clock; full mention appears once under its author',()=>{
+ const p=picture(),header=box(65,100,480,135),mention=box(65,145,310,180);
+ paint(p,box(68,150,195,177),[41,44,81]);paint(p,box(80,158,175,165),[190,195,250]);paint(p,box(200,155,300,170));
+ const wide=row('mixed',box(0,90,200,178),'Sample 9:30 PM'),full=row('reply',mention,'@Other hello');
+ const before=refineSemanticRows([wide,full],p,W,H,col);
+ assert.equal(before[0].kind,'mixed');assert.equal(before[1].mention,true);
+ assert.equal(headerBandBlocked(header,before,p,W,H,col),false);
+ assert.equal(headerBandBlocked(mention,before,p,W,H,col),true);
+ assert.equal(headerClockAligned(header,wide),true);assert.equal(headerClockAligned(mention,wide),false);
+ const separated=splitBoxesAtHeaders(before,[header],W).lines;
+ const recovery=separated.find(x=>x.needsBodyRead),primary=redundantSplit(recovery,separated,p,W,H,col);
+ assert.equal(primary?.mention,true);
+ const result=assembleTextTranscript([row('header',header,'Sample 9:30 PM'),...separated.map(x=>x===recovery?{...x,kind:'covered'}:x)]);
+ assert.equal(result.entries.length,1);assert.equal(result.entries[0].speaker,'Sample');assert.equal(result.entries[0].body,'@Other hello');
+});
+test('D5a1 a standalone highlighted mention containing clock text is not a header',()=>{
+ const p=picture(),b=box(65,145,310,180);paint(p,box(65,150,190,178),[41,44,81]);
+ const r=refineSemanticRows([head,row('header',b,'@Other 9:30 PM')],p,W,H,col);
+ assert.equal(r[1].kind,'body');assert.equal(r[1].mention,true);assert.equal(headerBandBlocked(b,r,p,W,H,col),true);
+});
+test('D5a1 distinct mentions and a recovery without a complete replacement are not suppressed',()=>{
+ const p=picture(),a=box(65,145,310,180),b=box(65,210,310,245);paint(p,box(65,150,190,178),[41,44,81]);paint(p,box(65,215,190,243),[41,44,81]);
+ const r=refineSemanticRows([head,row('body',a,'@Other hello',{splitBody:true}),row('body',b,'@Other hello')],p,W,H,col);
+ assert.equal(r[1].kind,'body');assert.equal(r[2].kind,'body');
+ assert.equal(assembleTextTranscript(r).entries[0].body,'@Other hello\n@Other hello');
 });
