@@ -1,5 +1,5 @@
 /** Same visible username pixels, not account identity. Local and per image. */
-import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d3abc';
+import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d4';
 const clean=s=>String(s??'').normalize('NFC').replace(/\s+/g,' ').trim();
 const valid=b=>b&&['x0','x1','y0','y1'].every(k=>Number.isInteger(b[k]))&&b.x1>b.x0&&b.y1>b.y0;
 export function identicalNamePixels(a,b,p,w,h){
@@ -36,6 +36,10 @@ function localChoice(row,head,obs){
  const tight=obs.filter(x=>['native','scaled'].includes(x.source));
  const native=by('native'),scaled=by('scaled');
  if(latinName(head.speaker)&&full.some(f=>f.name===head.speaker)&&!tight.some(t=>t.name===head.speaker))return {speaker:head.speaker,reason:'preserve-observed-bilingual',uncertain:true};
+ // A complete isolated name agreed by both crops can remove a leading
+ // avatar artifact, but never discard a structured numeric prefix.
+ if(native&&native===scaled&&!prefix(head.speaker)&&full.some(f=>f.name===native||f.name.endsWith(' '+native))&&
+    full.every(f=>!prefix(f.name)||prefix(f.name)===prefix(native)))return {speaker:native,reason:'isolated-name-agreement',uncertain:full.some(f=>f.name!==native)};
  const backed=tight.filter(t=>full.some(f=>f.name===t.name||f.name.startsWith(t.name+' ')));
  if(backed.length&&backed.every(t=>t.name===backed[0].name))return {speaker:backed[0].name,reason:'name-corroborated',uncertain:false};
  // A geometrically detected badge is not a license to remove arbitrary words.
