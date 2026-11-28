@@ -39,7 +39,10 @@ function bodyText(row,kind){
  const c=scrub(row.candidate),base=scrub(row.baseline??row.text);
  // A highlighted mention is actual body text. Keep an observed complete
  // mention reading if a later OCR pass lost its colored prefix.
- if(row.mention){const original=scrub(row.originalText??row.text);if(/^@/.test(original)&&!/^@/.test(c)&&!/^@/.test(base))return original;if(/^@/.test(base)&&!/^@/.test(c))return base;}
+ if(row.mention){
+  const observed=[base,scrub(row.originalText??row.text),c].map(t=>{const i=t.indexOf('@');return i>=0?t.slice(i):'';}).filter(Boolean);
+  if(observed.length)return observed[0]; // complete observed tag; never invent a name
+ }
 
  // Single-line OpenThai on a multi-line mixed raw block: crop was body-only.
  if(kind==='reply'&&(row.bitmap||row.textLeft)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
@@ -74,7 +77,7 @@ export function assembleTextTranscript(rows=[]){
    if(parsedDate && (kind==='date'||kind==='fragment')){
      flush();if(date!==parsedDate)output.push({dateMarker:parsedDate});date=parsedDate;pendingReply=null;continue;
    }
-   let head=chooseHeaderReading(r,raw);
+   let head=r.mention?null:chooseHeaderReading(r,raw);
    const chosen=r.nameResolution;
    if(head&&chosen&&chosen.time===head.time&&chosen.date===head.date){
     head={...head,speaker:chosen.speaker};
