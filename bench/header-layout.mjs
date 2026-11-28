@@ -72,7 +72,7 @@ export function splitBoxesAtHeaders(lines,bands,width){
  * or time. If isolated-name OCR is gibberish, preserve the full/header evidence.
  * A badge (TTO/DAV/etc) may be between username and time.
  */
-export function combineRecognizedHeader({full='',nameOnly='',nearby=''}={}){
+export function combineRecognizedHeader({full='',nameOnly='',nearby='',trustedNameGeometry=false}={}){
  const fullTime=parseDiscordTimestamp(full,{allowBare24:true}),nearTime=parseDiscordTimestamp(nearby,{allowBare24:true});
  const evidence=fullTime||nearTime;
  const time=evidence?.raw||null;
@@ -100,7 +100,7 @@ export function combineRecognizedHeader({full='',nameOnly='',nearby=''}={}){
    }
   }
   const original=nearTime?String(nearby).slice(0,nearTime.index).trim():'';
-  if(original.length>name.length&&original.endsWith(name)&&(!fullTime||fullTime.time===nearTime.time))return {text:String(nearby).trim(),usedNameOnly:false};
+  if(original.length>name.length&&original.endsWith(name)&&(!trustedNameGeometry||/[\p{L}]/u.test(original.slice(0,-name.length))||/\[\d+\]|\d+\s*[|｜]/u.test(original.slice(0,-name.length)))&&(!fullTime||fullTime.time===nearTime.time))return {text:String(nearby).trim(),usedNameOnly:false};
   if(fullTime&&!fullTime.date&&nearTime?.date&&fullTime.time===nearTime.time)return {text:`${name} ${nearTime.raw}`,usedNameOnly:true};
  }
  if(time&&plausible)return {text:`${name} ${time}`,usedNameOnly:true};
