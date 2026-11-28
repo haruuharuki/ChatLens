@@ -47,3 +47,17 @@ test('D4e same isolated name beats noisy wider crop without deleting numeric str
  const q={...r,text:'[01] Sample 9:30 PM',baseline:'[01] Sample 9:30 PM',nameEvidence:{...r.nameEvidence,full:'[01] Sample 9:30 PM',nearby:'[01] Sample 9:30 PM'}};
  assert.equal(resolveNameEvidence([q],p,W,H)[0].nameResolution.speaker,'[01] Sample');
 });
+
+test('D5a highlighted mention incorrectly labelled header stays in current message',()=>{
+ const p=picture(),b=box(65,145,310,180);paint(p,box(65,150,190,178),[41,44,81]);
+ const r=refineSemanticRows([head,row('header',b,'noise @Other hello',{layoutHeader:true})],p,W,H,col);
+ assert.equal(r[1].kind,'body');assert.equal(r[1].layoutHeader,false);assert.equal(r[1].mention,true);
+ const out=assembleTextTranscript([head,{...r[1],baseline:'hello',candidate:'hello'}]);
+ assert.equal(out.entries[0].speaker,'Sample');assert.equal(out.entries[0].body,'@Other hello');assert.equal(out.entries.length,1);
+});
+test('D5a taller overlapping short fragment retains unique ink; clipped recovery stays reviewable',()=>{
+ const p=picture(),a=row('body',box(0,145,120,185),'noise',{splitBody:true}),b=row('fragment',box(0,160,115,206),'ถาม');
+ paint(p,box(69,176,100,200));let r=refineSemanticRows([head,a,b],p,W,H,col);
+ assert.equal(r[1].kind,'covered');assert.equal(r[2].kind,'fragment');
+ paint(p,box(70,148,84,154));r=refineSemanticRows([head,a,b],p,W,H,col);assert.equal(r[1].kind,'body');
+});
