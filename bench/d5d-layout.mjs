@@ -71,6 +71,22 @@ export function clippedEdge(b,p,w,h,column,T){
  if(bottom&&H<T*.85&&white/count<.045&&colors/count<.50&&last>=h-4)return true;
  return false;
 }
+/** A real viewport boundary can cut a wide line whose OCR box is tall
+ * because an avatar/emoji is included. Look only at text-column white ink.
+ * Strong distributed ink at the first scanline is a clipping signal, not
+ * an OCR confidence score. A colored header strip is handled separately. */
+export function clippedWhiteTop(b,p,w,h,column,T){
+ if(!valid(b)||!column||column.samples<4||T<12||b.y0>2)return false;
+ const x0=Math.max(0,Math.ceil(column.x-T*.10),Math.floor(b.x0)),x1=Math.min(w,Math.ceil(b.x1));
+ if(x1-x0<T*2)return false;
+ const counts=[];let blocks=0;const step=Math.max(3,Math.floor(T*.45));
+ for(let y=0;y<Math.min(b.y1,Math.ceil(T*.95));y++){
+  let n=0;const touched=new Set();for(let x=x0;x<x1;x++){if(bright(rgb(p,w,x,y))){n++;touched.add(Math.floor((x-x0)/step));}}
+  counts.push(n);if(y===0)blocks=touched.size;
+ }
+ const peak=Math.max(0,...counts),edge=counts[0]||0;
+ return blocks>=3&&edge>=Math.max(12,T*.45,peak*.30)&&counts.slice(0,3).every(n=>n>=edge*.55);
+}
 /** Small neutral suffix separated from the main white text, with aligned
  * baseline. Do not crop same-size gray text or a colored tag. */
 export function visualEditedEdge(b,p,w,h,column){
@@ -132,11 +148,12 @@ export function refineEdgeRows(rows,p,w,h,column,{cropped=false}={}){
    let ink=0,cut=0;pixels(name,w,h,(x,y)=>{const c=rgb(p,w,x,y);if(max(c)>=105&&max(c)-min(c)>35){ink++;if(y<=2)cut++;}});
    if(ink>=30&&cut>=Math.max(6,ink*.035))return {...r,clippedName:true,reason:'ชื่อถูกตัดขอบบน — เก็บเฉพาะเวลาและเนื้อหาที่เห็น'};
   }
+  if(cropped&&['body','fragment'].includes(r.kind)&&clippedWhiteTop(b,p,w,h,column,T))return {...r,kind:'covered',alternateBody:false,edgeClipped:true,reason:'ขอบ viewport ตัดตัวอักษรจริงในคอลัมน์ข้อความ'};
   if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const top=edgeTextTop(b,p,w,h,column,T);if(top!==null){const left=edgeAvatarLeft(b,p,w,h,column,T,top);return {...r,edgeTextTop:top,...(left!==null?{textLeft:Math.max(r.textLeft??0,left)}:{}),reason:'ตัดเศษหัวชื่อที่ขอบบน แต่เก็บแถวข้อความจริง'};}
    const left=edgeAvatarLeft(b,p,w,h,column,T);if(left!==null&&!clippedEdge(b,p,w,h,column,T))return {...r,textLeft:Math.max(r.textLeft??0,left),reason:'แยกเศษรูปผู้พูดที่ขอบบนด้วยช่องว่างพิกเซล'};}
   if(clippedEdge(b,p,w,h,column,T))return {...r,kind:'covered',alternateBody:false,edgeClipped:true,reason:'ขอบภาพตัดตัวอักษร ไม่ส่งเข้าบทสนทนา'};
   if(['body','fragment','reply'].includes(r.kind)&&controlOwned(b,controls,p,w,h,column,T))return {...r,kind:'graphic',alternateBody:false,reason:'พิกเซลอยู่ในปุ่ม Reaction/ลูกศร'};
-  if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const arrow=controls.find(c=>c.type==='arrow'&&intersects(b,c)&&c.x0>b.x0+T*2);if(arrow){let ink=0;pixels({...b,x1:arrow.x0-2},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))ink++;});if(ink>=30)return {...r,textRight:Math.min(r.textRight??b.x1,arrow.x0-2),edgePartial:true,reason:'ตัดปุ่มลูกศรออกจากข้อความที่ยังอ่านได้'};}}
+  if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const arrow=controls.find(c=>c.type==='arrow'&&intersects(b,c)&&c.x0>b.x0+T*2);if(arrow){let ink=0;pixels({...b,x1:arrow.x0-2},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))ink++;});if(ink>=30){let touching=0;pixels({...b,x0:Math.max(b.x0,arrow.x0-Math.ceil(T*.28)),x1:arrow.x0,y0:Math.max(b.y0,arrow.y0),y1:Math.min(b.y1,arrow.y1)},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))touching++;});return {...r,textRight:Math.min(r.textRight??b.x1,arrow.x0-2),edgePartial:true,omitEdge:touching>=Math.max(4,T*.12),reason:'ตัดปุ่มลูกศรออกจากข้อความที่ยังอ่านได้'};}}}
   return r;
  });
 }

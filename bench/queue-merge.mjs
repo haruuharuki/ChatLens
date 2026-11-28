@@ -1,8 +1,8 @@
 // E.2: local-only, bounded evidence. No canvas, screenshot, filename or raw pixels
 // survive the per-image read. Hashes are ephemeral and never enter safe reports.
-import {formatTextTranscript} from './text-transcript.mjs?v=e3';
-import {thaiMarkDominates} from './region-output.mjs?v=e3';
-import {corroboratedName} from './name-evidence.mjs?v=e3';
+import {formatTextTranscript} from './text-transcript.mjs?v=e31';
+import {thaiMarkDominates} from './region-output.mjs?v=e31';
+import {corroboratedName} from './name-evidence.mjs?v=e31';
 const compact=s=>String(s??'').normalize('NFC').replace(/\u0e4d\u0e32/g,'\u0e33').replace(/\s+/gu,'');
 const plain=s=>compact(s).replace(/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/gu,'');
 const valid=b=>b&&[b.x0,b.x1,b.y0,b.y1].every(Number.isFinite)&&b.x1>b.x0&&b.y1>b.y0;
@@ -39,13 +39,16 @@ export function findViewportOverlap(a,b){
  return {shift,support:ys.length,from:Math.min(...ys),to:Math.max(...ys),end:Math.min(a.h,shift+b.h),rows:ys};
 }
 // Exact same-size name glyph evidence, never fuzzy-match two similar names.
-function nameKey(p,w,h,b){
- if(!p||!valid(b)||b.x0<0||b.y0<=2||b.x1>w||b.y1>=h-2||b.x1-b.x0>w*.65||b.y1-b.y0>100)return null;
+export function nameKey(p,w,h,b){
+ if(!p||!valid(b)||b.x0<0||b.y0<=2||b.x1>w||b.y1>=h-2||b.y1-b.y0>100)return null;
  let l=w,r=0,t=h,d=0,n=0;
  const on=(x,y)=>{const i=(y*w+x)*4;return Math.max(p[i],p[i+1],p[i+2])>=105&&Math.max(p[i],p[i+1],p[i+2])-Math.min(p[i],p[i+1],p[i+2])>35;};
  for(let y=b.y0;y<b.y1;y++)for(let x=b.x0;x<b.x1;x++)if(on(x,y)){l=Math.min(l,x);r=Math.max(r,x);t=Math.min(t,y);d=Math.max(d,y);n++;}
- if(n<40||r-l<12||d-t<8)return null;
- let a=2166136261,c=0x9e3779b9;for(let y=t;y<=d;y++)for(let x=l;x<=r;x++){const i=(y*w+x)*4,v=on(x,y)?(p[i]<<16|p[i+1]<<8|p[i+2]):0;a=hash(a,v);c=(Math.imul(c,31)+v)>>>0;}
+ if(n<40||r-l<12||d-t<8||r-l>w*.65)return null;
+ // An oversized OCR ROI may include a neutral timestamp. Only the colored
+ // glyph extent is fingerprinted; reject separated colored objects.
+ let gap=0;for(let x=l;x<=r;x++){let hit=false;for(let y=t;y<=d&&!hit;y++)hit=on(x,y);gap=hit?0:gap+1;if(gap>Math.max(12,(d-t+1)*1.2))return null;}
+ let a=2166136261,c=0x9e3779b9;for(let y=t;y<=d;y++)for(let x=l;x<=r;x++){const i=(y*w+x)*4,hi=Math.max(p[i],p[i+1],p[i+2]),lo=Math.min(p[i],p[i+1],p[i+2]),v=on(x,y)?(hi>=145&&hi-lo>=55?2:1):0;a=hash(a,v);c=(Math.imul(c,31)+v)>>>0;}
  return [r-l+1,d-t+1,n,a,c].join(':');
 }
 export function captureQueueEvidence(result,rows,p,w,h,column){
@@ -54,7 +57,7 @@ export function captureQueueEvidence(result,rows,p,w,h,column){
   if(e.dateMarker)return {dateMarker:e.dateMarker};
   const head=e.headerBox&&rows.find(r=>r.bbox?.y0===e.headerBox.y0&&r.bbox?.x0===e.headerBox.x0&&['header','mixed'].includes(r.kind));
   const lines=(e.sourceLines??[]).map(l=>({text:l.text,box:box(l.box),paragraph:!!l.paragraph,
-   edge:!!l.edge||!!l.box&&(l.box.y0<=2||l.box.y1>=h-4),
+   omitEdge:!!l.omitEdge,edge:!!l.edge||!!l.box&&(l.box.y0<=2||l.box.y1>=h-4),
    side:!!l.box&&l.box.x0>w*.82&&l.box.y0>h*.7&&l.box.x1-l.box.x0<w*.12}));
   return {speaker:e.speaker,time:e.time,date:e.date,reply:e.reply,body:e.body,uncertain:!!e.uncertain||!!head?.nameResolution?.uncertain,
    headerBox:box(e.headerBox),clippedName:!!head?.clippedName,nameObservations:head&&!head.clippedName?(head.nameObservations??[]):[],nameKey:head&&!head.clippedName?nameKey(p,w,h,head.nameROI):null,lines,
@@ -79,7 +82,7 @@ function joinMessage(a,b,o){
   const i=b.lines.findIndex((y,i)=>!used.has(i)&&!x.side&&!y.side&&aligned(x.box,y.box,o.shift)&&similarity(x.text,y.text)>=.76);
   if(i>=0){used.add(i);const y=b.lines[i];
    // A boundary-obscured reading is replaced only by a matching complete line.
-   const preferB=(a.atBottom&&!y.edge&&b.atTop)||(x.edge&&!y.edge);
+   const preferB=(x.omitEdge&&!y.omitEdge)||(!y.omitEdge&&((a.atBottom&&!y.edge&&b.atTop)||(x.edge&&!y.edge)));
    if(preferB&&x.text!==y.text)recovered++;
    out.push({... (preferB?y:x),box:x.box,paragraph:x.paragraph||y.paragraph});
   }else if(!(x.side&&a.atBottom&&b.atTop&&x.box.y0>=o.shift&&x.box.y1<=o.end)){out.push(x);}
@@ -90,7 +93,7 @@ function joinMessage(a,b,o){
  const author=(!a.speaker||a.clippedName)&&b.speaker||a.uncertain&&b.speaker&&!b.uncertain?b:a;
  // If a complete aligned header supersedes a clipped one, keep its observed
  // name evidence as well; never assume a spelling from body similarity alone.
- return {entry:{...a,speaker:author.speaker,time:a.time??b.time,date:a.date??b.date,reply:a.reply??b.reply,body,uncertain:author.uncertain,nameKey:author.nameKey,nameObservations:author.nameObservations,clippedName:author.clippedName,lines:out},recovered};
+ return {entry:{...a,speaker:author.speaker,time:a.time??b.time,date:a.date??b.date,reply:a.reply??b.reply,body,sourceLines:out,uncertain:author.uncertain,nameKey:author.nameKey,nameObservations:author.nameObservations,clippedName:author.clippedName,lines:out},recovered};
 }
 function unifyNames(results){
  const groups=new Map();for(const r of results)if(r.state==='done'&&r.records)for(const e of r.records.entries){if(!e.nameKey||!e.speaker)continue;if(!groups.has(e.nameKey))groups.set(e.nameKey,[]);groups.get(e.nameKey).push(e);}
@@ -102,11 +105,17 @@ function unifyNames(results){
   // name observation and compatible base glyphs. Conflicting marks stay put.
   if(!chosen){const obs=g.flatMap(e=>e.nameObservations??[]);const candidates=[...new Set(spellings.map(n=>corroboratedName(n,obs)).filter(Boolean))];
    if(candidates.length===1&&spellings.every(n=>n===candidates[0]||thaiMarkDominates(candidates[0],n)))chosen=candidates[0];}
+  if(!chosen){
+   const all=g.flatMap(e=>e.nameObservations??[]),options=[...new Set(all.map(o=>o.name))];
+   const compatible=options.filter(n=>spellings.every(s=>s===n||thaiMarkDominates(n,s))&&g.filter(e=>(e.nameObservations??[]).some(o=>o.name===n&&['native','full','baseline','open-name','variant-name'].includes(o.source))).length>=2);
+   // Exact visible glyphs and independent per-image evidence; conflicting marks veto.
+   if(compatible.length===1&&!all.some(o=>spellings.some(s=>thaiMarkDominates(o.name,s))&&o.name!==compatible[0]&&!thaiMarkDominates(compatible[0],o.name)))chosen=compatible[0];
+  }
   if(!chosen)continue;
   for(const e of g)if(e.uncertain&&e.speaker!==chosen){e.speaker=chosen;count++;}
  }return count;
 }
-function formatEntries(entries){const out=[];let date=null;for(const e of entries){if(e.dateMarker){if(date!==e.dateMarker){out.push(e);date=e.dateMarker;}continue;}if(e.date&&e.date!==date){date=e.date;out.push({dateMarker:date});}out.push(e);}return formatTextTranscript({entries:out});}
+function formatEntries(entries){const out=[];let date=null;for(const e of entries){if(e.dateMarker){if(date!==e.dateMarker){out.push(e);date=e.dateMarker;}continue;}if(e.date&&e.date!==date){date=e.date;out.push({dateMarker:date});}out.push({...e,sourceLines:e.lines});}return formatTextTranscript({entries:out});}
 /** Never bridge a failed/partial image. Unproven boundaries remain explicit. */
 export function mergeQueueRecords(results){
  // Copy records before changing name decisions; queue reorder/refresh is pure.

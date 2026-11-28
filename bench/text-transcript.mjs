@@ -5,7 +5,8 @@
  */
 import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 export {dateFromOCR};
-import {resolveBodyRows,hasBodyAlternative,selectBilingualText,observedMarkReading,selectReplyContinuation} from './region-output.mjs?v=e3';
+import {resolveBodyRows,hasBodyAlternative,selectBilingualText,observedMarkReading,selectReplyContinuation} from './region-output.mjs?v=e31';
+import {selectVariantReading} from './recognition-variants.mjs?v=e31';
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
@@ -34,7 +35,7 @@ export function chooseHeaderReading(row,raw){
 }
 function substantive(t){const s=scrub(t);return !!s&&s.length<=1200&&!EMPTY_ART.test(s)&&(/[\p{L}\p{N}]/u.test(s));}
 function isUI(s){return /^(?:#\s*[A-Za-z][\w-]*|\d{1,3}\s+Online\b|Message\s*#|\b(?:\d{1,2}:\d{2})\b\s*[5G]*)$/i.test(s);}
-function bodyText(row,kind){
+function baseBodyText(row,kind){
  if(typeof row.truth==='string'&&row.truth.trim())return scrub(row.truth);
  const c=scrub(row.candidate),base=scrub(row.baseline??row.text);
  // A highlighted mention is actual body text. Keep an observed complete
@@ -55,6 +56,11 @@ function bodyText(row,kind){
  if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c)){const chosen=selectBilingualText(c,base,row.originalText??row.text??base,{shortFragment:kind==='fragment',reconcileMarks:kind!=='mixed'});return row.edgeTextTop!=null?chosen.replace(/^[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]+\s*/u,''):chosen;}
  return base;
 }
+function bodyText(row,kind){
+ const chosen=baseBodyText(row,kind);
+ if(row.truth||!row.variantReading||row.replyIdentity||row.mention)return chosen;
+ return selectVariantReading(chosen,row.originalText??row.text,row.baseline,row.candidate,row.variantReading);
+}
 /**
  * Pass all detected regions, not just selected ones, so date and headers aren't
  * lost when only body lines were sampled. OCR results are optional for rows.
@@ -71,7 +77,7 @@ export function assembleTextTranscript(rows=[]){
    if(!current){current={speaker:null,time:null,date,reply:null,parts:[],uncertain:true};}
    if(current.lastY!==undefined&&box&&box.y0-current.lastY>180&&current.speaker){flush();current={speaker:null,time:null,date,reply:null,parts:[],uncertain:true};warnings.push('ข้อความแยกห่างจากหัวข้อความมาก จึงไม่เดาผู้พูด');}
    const paragraph=Boolean(row?.paragraphBefore&&current.parts.length);if(paragraph)current.parts.push('');
-   const line=row?.bullet&&row.bulletRead&&!row.truth?'- '+s:s;current.parts.push(line);(current.sourceLines??=[]).push({text:line,box,paragraph,edge:!!row?.edgePartial});current.lastY=box?.y1;
+   const line=row?.bullet&&row.bulletRead&&!row.truth?'- '+s:s;current.parts.push(line);(current.sourceLines??=[]).push({text:line,box,paragraph,edge:!!row?.edgePartial,omitEdge:!!row?.omitEdge});current.lastY=box?.y1;
  }
  for(let index=0;index<ordered.length;index++){
    const r=ordered[index];
@@ -134,13 +140,14 @@ export function assembleTextTranscript(rows=[]){
  return {entries:output,warnings,graphicCount:graphics,duplicateCount,unknownCount:output.filter(x=>!x.dateMarker&&!x.speaker).length};
 }
 export function formatTextTranscript(result){
- const lines=[],entries=result?.entries||[];
+ const lines=[],entries=(result?.entries||[]).filter(e=>e.dateMarker||e.reply||!e.sourceLines?.length||e.sourceLines.some(l=>!l.omitEdge));
  if(entries.length===0||!entries[0].dateMarker)lines.push('[ไม่ทราบวันที่]');
  for(const e of entries){
    if(e.dateMarker){lines.push(`[${e.dateMarker}]`);continue;}
    const head=`[${e.speaker||'ไม่ทราบผู้พูด'}] - ${e.time||'ไม่ทราบเวลา'}`;
    const reply=e.reply?`> ตอบกลับ: ${e.reply.replace(/\n/g,'\n> ')}\n`:'';
-   lines.push(reply+head+'\n'+(e.body||'[ยังอ่านข้อความไม่ครบ]'));
+   const visible=e.sourceLines?.some(l=>l.omitEdge)?e.sourceLines.filter(l=>!l.omitEdge).map((l,i)=>(i&&l.paragraph?'\n':'')+l.text).join('\n'):e.body;
+   lines.push(reply+head+'\n'+(visible||'[ยังอ่านข้อความไม่ครบ]'));
  }
  return lines.join('\n\n').trim();
 }

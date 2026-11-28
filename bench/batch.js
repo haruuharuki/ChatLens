@@ -1,9 +1,9 @@
-import {MAX_QUEUE_IMAGES,moveQueueItem,runImageQueue,formatQueueTranscript} from './image-queue.mjs?v=e3';
-import {captureQueueEvidence,mergeQueueRecords} from './queue-merge.mjs?v=e3';
+import {MAX_QUEUE_IMAGES,moveQueueItem,runImageQueue,formatQueueTranscript} from './image-queue.mjs?v=e31';
+import {captureQueueEvidence,mergeQueueRecords} from './queue-merge.mjs?v=e31';
 import {linkReplyRegions} from './reply-identity.mjs?v=d5d';
-import {refineEdgeRows} from './d5d-layout.mjs?v=e3';
-import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=e3';
-import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=e3';
+import {refineEdgeRows} from './d5d-layout.mjs?v=e31';
+import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=e31';
+import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=e31';
 import {trailingBitmap} from './graphic-edge.mjs?v=d4';
 import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d4';
 import {inferTextColumn,safeTextLeft,allowVerticalBand} from './smart-region.mjs?v=d2c12';
@@ -17,14 +17,15 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=e3';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=e31';
 import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d4';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
+import {contrastRGBA,variantPriority} from './recognition-variants.mjs?v=e31';
 const $=id=>document.getElementById(id);
 const TESSERACT_URL='https://cdn.jsdelivr.net/npm/tesseract.js@6.0.1/dist/tesseract.min.js';
 let imageCanvas=null,ocrLines=[],scannedFile=null,worker=null,onnx=null,ort=null,dictionary=null;
-let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0,nameInferenceMs=0,nameReadCount=0;
+let modelLoadMs=0,tesseractMs=0,tesseractLineMs=0,totalInferenceMs=0,nameInferenceMs=0,nameReadCount=0,variantReadCount=0,variantMs=0;
 let items=[],busy=false,stopRequested=false,wasCancelled=false,runtimeAttempts=[],stage='idle';
 let cropApplied=false,reviewReady=false,reviewSelection=new Set(),imagePixels=null;
 let transcriptEdited=false, textColumn=null, lastNameResolutions=[];
@@ -56,7 +57,7 @@ function showQueueTranscript(force=false){
  if(transcriptEdited&&!force)return;
  $('transcript-text').value=formatQueueTranscript(queueResults);
  const m=queueResults.some(r=>r.records)?mergeQueueRecords(queueResults):null;
- $('transcript-warning').textContent=m?`E.3 · ยืนยันรอยต่อ ${m.overlaps} · รวมข้อความซ้อน ${m.mergedMessages} · กู้บรรทัด ${m.recoveredLines} · เชื่อมชื่อ ${m.nameLinks} · รอยต่อยังไม่ยืนยัน ${m.unresolved} · โปรดตรวจร่างก่อนคัดลอก`:'E.3 · ยังไม่มีหลักฐานสำหรับรวมภาพ · ตรวจร่างก่อนคัดลอก';
+ $('transcript-warning').textContent=m?`E.3.1 · ยืนยันรอยต่อ ${m.overlaps} · รวมข้อความซ้อน ${m.mergedMessages} · กู้บรรทัด ${m.recoveredLines} · เชื่อมชื่อ ${m.nameLinks} · รอยต่อยังไม่ยืนยัน ${m.unresolved} · โปรดตรวจร่างก่อนคัดลอก`:'E.3.1 · ยังไม่มีหลักฐานสำหรับรวมภาพ · ตรวจร่างก่อนคัดลอก';
  $('transcript-panel').hidden=false;transcriptEdited=false;
 }
 async function runQueue(){
@@ -176,6 +177,7 @@ async function detectLines(file){
   ocrLines=classifyStructure(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn);
   ocrLines=refineSemanticRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn,{cropped:cropApplied});
   ocrLines=refineEdgeRows(ocrLines,pixels,imageCanvas.width,imageCanvas.height,textColumn,{cropped:cropApplied});
+  ocrLines=ocrLines.map(l=>{if(!l.alternateBody)return l;const p=ocrLines.find(q=>(q.edgeClipped||q.omitEdge)&&alternateMatches(l,q));return p?{...l,alternateBody:false,edgeClipped:!!p.edgeClipped,reason:'กรอบสำรองของบรรทัดขอบภาพที่ถูกบัง'}:l;});
   // Short names may not create a geometric header band. Keep its observed clock.
   if($('layout-headers').checked)for(const l of ocrLines){
    if(l.kind!=='mixed'||!l.bodyBand)continue;
@@ -300,17 +302,32 @@ function canvasTensor(c){
 }
 // Reuse exact local pixels, not text or avatar identity. The isolated name
 // pass is best-effort and bounded; it never changes the primary OCR status.
+async function contrastRead(source){
+ const start=performance.now(),c=document.createElement('canvas');
+ const w=source.width,h=source.height,scale=h<=60&&w<=750?2:1;
+ c.width=w*scale;c.height=h*scale;
+ try{const ctx=c.getContext('2d',{willReadFrequently:true});ctx.imageSmoothingEnabled=true;ctx.drawImage(source,0,0,c.width,c.height);const im=ctx.getImageData(0,0,c.width,c.height);im.data.set(contrastRGBA(im.data,c.width,c.height));ctx.putImageData(im,0,0);
+ const t=await (await getWorker()).recognize(c);const o=await recognizeOne(c);return {tess:String(t.data.text||'').replace(/\s+/g,' ').trim(),open:o.text};}
+ finally{variantReadCount++;variantMs+=Math.round(performance.now()-start);c.width=1;c.height=1;}
+}
+async function recognizeVariants(){
+ const ranked=items.filter(i=>!i.error&&i.candidate!=null).map(i=>({i,score:variantPriority(i.line,i.baseline,i.candidate,i.prepared.canvas.width,i.prepared.canvas.height)})).filter(x=>x.score>=0).sort((a,b)=>b.score-a.score);
+ // Max eight additional line passes; reserve two slots for agreement samples.
+ const uncertain=ranked.filter(x=>x.i.baseline!==x.i.candidate).slice(0,6),agree=ranked.filter(x=>x.i.baseline===x.i.candidate).slice(0,2);
+ for(const {i} of [...uncertain,...agree]){if(stopRequested)break;try{i.variantReading=await contrastRead(i.prepared.canvas);}catch(_){}await new Promise(resolve=>setTimeout(resolve,0));}
+}
 async function recognizeNames(){
- const cache=[];let budget=20;
+ const cache=[];let budget=20,variantBudget=3;
  for(const item of items){
   if(stopRequested)break;
   const r=ocrLines[item.index],b=r?.nameROI;
   if(!r||!['header','mixed'].includes(r.kind)||r.clippedName||!r.nameEvidence||!b||b.y0<=2||b.y1>=imageCanvas.height-2||b.x0<0||b.x1>imageCanvas.width||b.x1-b.x0>1000||b.y1-b.y0>100||b.x1<=b.x0||b.y1<=b.y0)continue;
   const cached=cache.find(q=>identicalNamePixels(q.box,b,imagePixels,imageCanvas.width,imageCanvas.height));
-  if(cached){r.nameOpenThai=cached.text;continue;}
+  if(cached){r.nameOpenThai=cached.text;r.nameVariant=cached.variant;continue;}
   if(budget--<=0)break;
   const c=document.createElement('canvas');c.width=b.x1-b.x0;c.height=b.y1-b.y0;
-  try{c.getContext('2d').drawImage(imageCanvas,b.x0,b.y0,c.width,c.height,0,0,c.width,c.height);const result=await recognizeOne(c);nameInferenceMs+=result.took;nameReadCount++;r.nameOpenThai=result.text;cache.push({box:b,text:result.text});}
+  try{c.getContext('2d').drawImage(imageCanvas,b.x0,b.y0,c.width,c.height,0,0,c.width,c.height);const result=await recognizeOne(c);nameInferenceMs+=result.took;nameReadCount++;r.nameOpenThai=result.text;if(variantBudget>0&&/[ก-ฮ]/u.test(r.nameEvidence.native||'')&&result.text!==r.nameEvidence.native){variantBudget--;try{r.nameVariant=await contrastRead(c);}catch(_){}}
+ cache.push({box:b,text:result.text,variant:r.nameVariant});}
   catch(_){/* Keep existing name evidence if the extra recognition fails. */}
   finally{c.width=1;c.height=1;}
   await new Promise(resolve=>setTimeout(resolve,0));
@@ -397,7 +414,7 @@ function refreshTranscript(force=false){
   const item=byIndex.get(index);
   return {...line,kind:line.alternateBody&&item?'body':line.kind,originalText:line.text,
    baseline:item?.baseline??line.text,
-   candidate:item?.candidate??null,
+   candidate:item?.candidate??null,variantReading:item?.variantReading??null,
    error:Boolean(item?.error),replyBodyRead:Boolean(line.replyIdentity&&item?.baseline!==line.text&&item?.prepared?.cleaned&&!item?.error),bulletRead:Boolean(line.bullet&&item?.candidate!==null&&item?.candidate!==undefined&&!item.error),bitmap:item?.prepared?.bitmap??null,truth:item?.truth??'',bodyOnly:line.kind==='mixed'?Boolean(item?.prepared?.mixedBand):true};
  });
  const resolved=resolveNameEvidence(rows,imagePixels,imageCanvas.width,imageCanvas.height);
@@ -426,9 +443,9 @@ function refreshStats(){
  $('copy-safe').disabled=!items.length;
  $('copy-text').disabled=!items.length;
 }
-function safeReport(loadMs=modelLoadMs){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs:loadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length})+`\nE.3 isolated name reads: ${nameReadCount}; name inference ms: ${nameInferenceMs}`;}
+function safeReport(loadMs=modelLoadMs){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs:loadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length})+`\nE.3.1 isolated name reads: ${nameReadCount}; name inference ms: ${nameInferenceMs}; contrast reads: ${variantReadCount}; contrast total ms: ${variantMs}`;}
 function transcriptReport(){
- return ['ChatLens E.3 — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms; isolated names ${nameReadCount}, ${nameInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Edge clips: ${ocrLines.filter(l=>l.edgeClipped).length}; Edge strips: ${ocrLines.filter(l=>l.edgeTextTop!=null).length}; UI/graphic: ${ocrLines.filter(l=>l.kind==='graphic').length}; Reply identity links: ${ocrLines.filter(l=>l.replyIdentity).length}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}; OpenThai isolated: ${JSON.stringify(item.line.nameOpenThai??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,edgeTextTop:item.line.edgeTextTop??null,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens E.3.1 — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms; isolated names ${nameReadCount}, ${nameInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Edge clips: ${ocrLines.filter(l=>l.edgeClipped).length}; Edge strips: ${ocrLines.filter(l=>l.edgeTextTop!=null).length}; omitted occluded: ${ocrLines.filter(l=>l.omitEdge).length}; contrast reads: ${variantReadCount}, ${variantMs} ms; UI/graphic: ${ocrLines.filter(l=>l.kind==='graphic').length}; Reply identity links: ${ocrLines.filter(l=>l.replyIdentity).length}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}; OpenThai isolated: ${JSON.stringify(item.line.nameOpenThai??null)}; name contrast: ${JSON.stringify(item.line.nameVariant??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,edgeTextTop:item.line.edgeTextTop??null,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}\nContrast: ${JSON.stringify(item.variantReading??null)}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}
@@ -488,12 +505,12 @@ async function run(){
  return runImage(file,false);
 }
 async function runImage(file,inQueue){
- wasCancelled=false;items=[];totalInferenceMs=0;nameInferenceMs=0;nameReadCount=0;tesseractLineMs=0;if(scannedFile!==file)tesseractMs=0;
+ wasCancelled=false;items=[];totalInferenceMs=0;nameInferenceMs=0;nameReadCount=0;variantReadCount=0;variantMs=0;tesseractLineMs=0;if(scannedFile!==file)tesseractMs=0;
  const modelWasLoaded=Boolean(onnx);
  $('report').hidden=true;$('results').replaceChildren();$('fallback').hidden=true;$('copy-safe').disabled=true;$('progress').value=0;
  try{
   await detectLines(file);
-  for(const line of ocrLines)delete line.nameOpenThai;
+  for(const line of ocrLines){delete line.nameOpenThai;delete line.nameVariant;}
   if(stopRequested){wasCancelled=true;return {state:'cancelled'};}
   if(!reviewReady){defaultReviewSelection();if(!inQueue)renderReview();}
   const selected=[...reviewSelection].sort((a,b)=>a-b).filter(i=>i>=0&&i<ocrLines.length).map(index=>({line:ocrLines[index].alternateBody?{...ocrLines[index],kind:'body'}:ocrLines[index],index}));
@@ -530,6 +547,7 @@ async function runImage(file,inQueue){
    await new Promise(resolve=>setTimeout(resolve,0));
   }
   if(!wasCancelled&&!stopRequested)await recognizeNames();
+  if(!wasCancelled&&!stopRequested)await recognizeVariants();
   const c=counts();
   if(inQueue){
    if(wasCancelled||stopRequested)return {state:'cancelled',diagnostic:safeReport(modelWasLoaded?0:modelLoadMs)};
@@ -563,7 +581,7 @@ $('copy-safe').addEventListener('click',()=>copyOrShow(safeReport()));
 $('copy-text').addEventListener('click',()=>copyOrShow(transcriptReport()));
 $('transcript-text').addEventListener('input',()=>{transcriptEdited=true;});
 $('transcript-refresh').addEventListener('click',()=>{transcriptEdited=false;if(queueFiles.length>1)showQueueTranscript(true);else refreshTranscript(true);});
-$('queue-copy-safe').addEventListener('click',()=>{const {text,...stats}=mergeQueueRecords(queueResults);copyOrShow('E.3 merge counts: '+JSON.stringify(stats)+'\n\n'+queueResults.map((r,i)=>`Image ${i+1}: ${r.state}\n${r.diagnostic}`).join('\n\n'));});
+$('queue-copy-safe').addEventListener('click',()=>{const {text,...stats}=mergeQueueRecords(queueResults);copyOrShow('E.3.1 merge counts: '+JSON.stringify(stats)+'\n\n'+queueResults.map((r,i)=>`Image ${i+1}: ${r.state}\n${r.diagnostic}`).join('\n\n'));});
 renderQueue();
 $('copy-transcript').addEventListener('click',()=>copyOrShow($('transcript-text').value));
 window.addEventListener('pagehide',()=>{try{worker?.terminate();onnx?.release();}catch(_){}});

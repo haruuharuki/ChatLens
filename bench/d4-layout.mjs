@@ -1,5 +1,5 @@
 /** Dark mobile Discord geometry. No private text or device-specific coordinates. */
-import {visualEditedEdge,clippedEdge} from './d5d-layout.mjs?v=e3';
+import {visualEditedEdge,clippedEdge} from './d5d-layout.mjs?v=e31';
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const valid=b=>b&&b.x1>b.x0&&b.y1>b.y0;
 const span=(a,b)=>Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
