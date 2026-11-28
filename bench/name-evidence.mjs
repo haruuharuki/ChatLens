@@ -54,6 +54,14 @@ function localChoice(row,head,obs){
  // avatar artifact, but never discard a structured numeric prefix.
  if(native&&native===scaled&&!prefix(head.speaker)&&full.some(f=>f.name===native||f.name.endsWith(' '+native))&&
     full.every(f=>!prefix(f.name)||prefix(f.name)===prefix(native)))return {speaker:native,reason:'isolated-name-agreement',uncertain:full.some(f=>f.name!==native)};
+ // A structured native name can be corroborated by independent full rows
+ // even if OCR drops a space next to the separator or reads a tiny numeric
+ // avatar artifact before a bracket. Preserve the isolated observed spelling.
+ const pipeKey=s=>clean(s).replace(/\s*\|\s*/g,'|');
+ if(native&&prefix(native)&&/^[[(]/.test(native)){
+  const key=pipeKey(native),support=full.filter(f=>pipeKey(f.name)===key||pipeKey(f.name.replace(/^\d{1,2}\s+(?=[[(]\d)/u,''))===key);
+  if(support.length>=2&&!full.some(f=>prefix(f.name)&&prefix(f.name)!==prefix(native)))return {speaker:native,reason:'structured-native-corroborated',uncertain:scaled!==native};
+ }
  const backed=tight.filter(t=>full.some(f=>f.name===t.name||f.name.startsWith(t.name+' ')));
  if(backed.length&&backed.every(t=>t.name===backed[0].name))return {speaker:backed[0].name,reason:'name-corroborated',uncertain:false};
  // A geometrically detected badge is not a license to remove arbitrary words.

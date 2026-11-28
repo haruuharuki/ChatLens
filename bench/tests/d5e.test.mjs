@@ -45,3 +45,10 @@ test('edge fragment cleanup cannot delete the complete visible body, manual trut
 test('trailing hyphen is preserved only with corroborating exact content',()=>{
  assert.equal(selectBilingualText('ไปมั้','ไปมั้-','ไปมั้-'),'ไปมั้-');assert.equal(selectBilingualText('ไปมั้','ไปมั้-','ไปมั้'),'ไปมั้');
 });
+
+test('structured native name survives separator spacing and numeric avatar artifacts',()=>{
+ const p=picture();const a=head(50,'9:30 PM','(08) ชื่อกั้ง | ทดสอบ','(08) ชื่อกั้ง | ทดสอบ','(08) ชื่อกุ้ง | ทดสอบ','(08) ชื่อกั้ง | ทดสอบ','(08) ชื่อกุ้ง |ทดสอบ');a.nameEvidence.nearby='1 (08) ชื่อกุ้ง | ทดสอบ 9:30 PM';const [r]=resolveNameEvidence([a],p,W,H);assert.equal(r.nameResolution.speaker,'(08) ชื่อกุ้ง | ทดสอบ');assert.equal(r.nameResolution.uncertain,true);
+});
+test('mixed fallback retains its existing candidate selection',()=>{
+ assert.equal(selectBilingualText('ขอความทดสอบ','ข้อความทดสอบ','ข้อความทดสอบ',{reconcileMarks:false}),'ขอความทดสอบ');
+});

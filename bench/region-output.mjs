@@ -36,7 +36,7 @@ function shortCorroboratedFragment(c,b,o){
 }
 /** Prefer an intact observed reading only when a corroborated Latin word was lost
  * and the surrounding Thai text still agrees. Never splice or translate words. */
-export function selectBilingualText(candidate,baseline,original=baseline,{shortFragment=false}={}){
+export function selectBilingualText(candidate,baseline,original=baseline,{shortFragment=false,reconcileMarks=true}={}){
  const c=String(candidate??'').trim(),b=String(baseline??'').trim();
  if(!c)return b;if(!b)return c;
  // Structured dice notation is a real observed mixed token, not a dictionary
@@ -55,7 +55,7 @@ export function selectBilingualText(candidate,baseline,original=baseline,{shortF
  // engine already sees Latin as well. Pure English keeps the old rule.
  const interior=latin(b.match(/[\u0e01-\u0e5b].*[\u0e01-\u0e5b]/u)?.[0]||'');
  const missing=bt.filter(t=>!ct.includes(t)&&ot.includes(t)&&(!thai(b)||ct.length||interior.includes(t)));
- if(!missing.length){const marked=observedMarkReading(c,b,original);if(marked!==c)return marked;return shortFragment&&shortCorroboratedFragment(c,b,original)?b:c;}
+ if(!missing.length){const marked=reconcileMarks?observedMarkReading(c,b,original):c;if(marked!==c)return marked;return shortFragment&&shortCorroboratedFragment(c,b,original)?b:c;}
  const tb=thai(b),tc=thai(c);
  if(tb.length>=2&&tc.length>=2&&similarity(tb,tc)>=.65)return b;
  if(!tb&&bt.length&&!ct.length&&norm(b)===norm(original))return b;
