@@ -23,7 +23,7 @@ export function findControlBoxes(p,w,h,column,T){
   for(let j=0;j<stack.length;j++){let k=stack[j],x=k%W,y=Math.floor(k/W);x0=Math.min(x0,x);x1=Math.max(x1,x);y0=Math.min(y0,y);y1=Math.max(y1,y);n++;
    for(const v of [x>0?k-1:-1,x+1<W?k+1:-1,y>0?k-W:-1,y+1<H?k+W:-1])if(v>=0&&mask[v]&&!seen[v]){seen[v]=1;stack.push(v);}}
   const b={x0:x0*step,y0:y0*step,x1:Math.min(w,(x1+1)*step),y1:Math.min(h,(y1+1)*step)},bw=b.x1-b.x0,bh=b.y1-b.y0;
-  if(bh<T*.65||bh>T*2.6||bw<T*.65||bw>T*5||n/((x1-x0+1)*(y1-y0+1))<.35)continue;
+  if(bh<T*.65||bh>T*(b.x0>w*.83&&b.y0>h*.60?3:2.6)||bw<T*.65||bw>T*5||n/((x1-x0+1)*(y1-y0+1))<.35)continue;
   const arrow=b.x0>w*.83&&b.y0>h*.60&&bw/bh>.65&&bw/bh<1.45;
   const reaction=b.x0>=X-T*.25&&b.x0<X+T*6&&bw/bh>=.65&&bw/bh<=2.5;
   if(!arrow&&!reaction)continue;
@@ -105,6 +105,23 @@ export function edgeTextTop(b,p,w,h,column,T){
  let main=0;pixels({...b,x0:start,y0:firstWhite},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))main++;});
  return main>=Math.max(30,colors*4)?lastColor+1:null;
 }
+/** A top-edge body may share a box with the bottom of an avatar. Cut
+ * only when a dark gutter separates it from visible white body ink. */
+export function edgeAvatarLeft(b,p,w,h,column,T,top=0){
+ if(!valid(b)||!column||column.samples<4||T<12||b.y0>2||b.x0>=column.x-T*.45)return null;
+ const X=Math.floor(column.x),y0=Math.max(b.y0,top),y1=b.y1;
+ if(y1-y0<T*.60||X<8)return null;
+ const ink=(x,y)=>glyph(rgb(p,w,x,y));
+ const hits=x=>{let n=0;for(let y=y0;y<y1;y++)if(ink(x,y))n++;return n;};
+ let first=-1;for(let x=Math.max(0,X-Math.ceil(T*.15));x<Math.min(b.x1,X+Math.ceil(T*.35));x++)if(hits(x)>=2){first=x;break;}
+ if(first<0)return null;
+ const gap=Math.max(3,Math.ceil(T*.13)),cut=first-gap;
+ if(cut<0||Array.from({length:gap},(_,i)=>hits(cut+i)).some(n=>n>0))return null;
+ let left=0,right=0,colors=0,l=w,r=0,t=h,d=0;pixels({...b,y0,x1:cut},w,h,(x,y)=>{if(!ink(x,y))return;left++;const c=rgb(p,w,x,y);if(max(c)-min(c)>35)colors++;l=Math.min(l,x);r=Math.max(r,x);t=Math.min(t,y);d=Math.max(d,y);});
+ pixels({...b,y0,x0:first},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))right++;});
+ const bw=r-l+1,bh=d-t+1;
+ return left>=12&&right>=30&&r<X-T*.30&&bw>=T*.35&&bh>=T*.40&&(left/(bw*bh)>.45||colors/left>.20)?cut:null;
+}
 export function refineEdgeRows(rows,p,w,h,column,{cropped=false}={}){
  if(!p||!column)return rows;const T=typicalTextHeight(rows,w,h);if(T<12)return rows;
  const controls=findControlBoxes(p,w,h,column,T);
@@ -115,9 +132,11 @@ export function refineEdgeRows(rows,p,w,h,column,{cropped=false}={}){
    let ink=0,cut=0;pixels(name,w,h,(x,y)=>{const c=rgb(p,w,x,y);if(max(c)>=105&&max(c)-min(c)>35){ink++;if(y<=2)cut++;}});
    if(ink>=30&&cut>=Math.max(6,ink*.035))return {...r,clippedName:true,reason:'ชื่อถูกตัดขอบบน — เก็บเฉพาะเวลาและเนื้อหาที่เห็น'};
   }
-  if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const top=edgeTextTop(b,p,w,h,column,T);if(top!==null)return {...r,edgeTextTop:top,reason:'ตัดเศษหัวชื่อที่ขอบบน แต่เก็บแถวข้อความจริง'};}
+  if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const top=edgeTextTop(b,p,w,h,column,T);if(top!==null){const left=edgeAvatarLeft(b,p,w,h,column,T,top);return {...r,edgeTextTop:top,...(left!==null?{textLeft:Math.max(r.textLeft??0,left)}:{}),reason:'ตัดเศษหัวชื่อที่ขอบบน แต่เก็บแถวข้อความจริง'};}
+   const left=edgeAvatarLeft(b,p,w,h,column,T);if(left!==null&&!clippedEdge(b,p,w,h,column,T))return {...r,textLeft:Math.max(r.textLeft??0,left),reason:'แยกเศษรูปผู้พูดที่ขอบบนด้วยช่องว่างพิกเซล'};}
   if(clippedEdge(b,p,w,h,column,T))return {...r,kind:'covered',alternateBody:false,edgeClipped:true,reason:'ขอบภาพตัดตัวอักษร ไม่ส่งเข้าบทสนทนา'};
   if(['body','fragment','reply'].includes(r.kind)&&controlOwned(b,controls,p,w,h,column,T))return {...r,kind:'graphic',alternateBody:false,reason:'พิกเซลอยู่ในปุ่ม Reaction/ลูกศร'};
+  if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const arrow=controls.find(c=>c.type==='arrow'&&intersects(b,c)&&c.x0>b.x0+T*2);if(arrow){let ink=0;pixels({...b,x1:arrow.x0-2},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))ink++;});if(ink>=30)return {...r,textRight:Math.min(r.textRight??b.x1,arrow.x0-2),edgePartial:true,reason:'ตัดปุ่มลูกศรออกจากข้อความที่ยังอ่านได้'};}}
   return r;
  });
 }

@@ -1,6 +1,8 @@
 // E.2: local-only, bounded evidence. No canvas, screenshot, filename or raw pixels
 // survive the per-image read. Hashes are ephemeral and never enter safe reports.
-import {formatTextTranscript} from './text-transcript.mjs?v=e2';
+import {formatTextTranscript} from './text-transcript.mjs?v=e3';
+import {thaiMarkDominates} from './region-output.mjs?v=e3';
+import {corroboratedName} from './name-evidence.mjs?v=e3';
 const compact=s=>String(s??'').normalize('NFC').replace(/\u0e4d\u0e32/g,'\u0e33').replace(/\s+/gu,'');
 const plain=s=>compact(s).replace(/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/gu,'');
 const valid=b=>b&&[b.x0,b.x1,b.y0,b.y1].every(Number.isFinite)&&b.x1>b.x0&&b.y1>b.y0;
@@ -9,7 +11,7 @@ const hash=(h,v)=>Math.imul(h^v,16777619)>>>0;
 // Two independent accumulators; ignore empty scanlines and right-side floating UI.
 export function viewportEvidence(p,w,h,column){
  if(!p||p.length!==w*h*4||!column||w<100||h<100||h>4000)return null;
- const x0=Math.max(0,Math.floor(w*.15)),x1=Math.floor(w*.75),edge=Math.ceil(h*.48);
+ const x0=Math.max(0,Math.floor(w*.15)),x1=Math.floor(w*.75),edge=Math.ceil(h*.66);
  const top=[],bottom=[];
  for(let y=0;y<h;y++){
   if(y>=edge&&y<h-edge)continue;
@@ -28,12 +30,12 @@ export function findViewportOverlap(a,b){
  if(!a||!b||a.w!==b.w)return null;
  const x=uniqueRows(a.bottom),y=uniqueRows(b.top),votes=new Map();
  for(const [k,i] of x){const j=y.get(k);if(i==null||j==null)continue;const shift=i-j;
-  if(shift<1||shift>=a.h-15)continue;
+  if(Math.abs(shift)>=Math.max(a.h,b.h)-15)continue;
   if(!votes.has(shift))votes.set(shift,[]);votes.get(shift).push(i);
  }
  const ranked=[...votes].sort((a,b)=>b[1].length-a[1].length),best=ranked[0];if(!best)return null;
  const [shift,ys]=best,span=Math.max(...ys)-Math.min(...ys)+1;
- if(ys.length<14||span<20||ys.length/span<.10||ys.length<(ranked[1]?.[1].length??0)*1.65)return null;
+ if(shift<=0||shift>=a.h-15||ys.length<24||span<20||ys.length/span<.10||ys.length<(ranked[1]?.[1].length??0)*1.65)return null;
  return {shift,support:ys.length,from:Math.min(...ys),to:Math.max(...ys),end:Math.min(a.h,shift+b.h),rows:ys};
 }
 // Exact same-size name glyph evidence, never fuzzy-match two similar names.
@@ -52,15 +54,15 @@ export function captureQueueEvidence(result,rows,p,w,h,column){
   if(e.dateMarker)return {dateMarker:e.dateMarker};
   const head=e.headerBox&&rows.find(r=>r.bbox?.y0===e.headerBox.y0&&r.bbox?.x0===e.headerBox.x0&&['header','mixed'].includes(r.kind));
   const lines=(e.sourceLines??[]).map(l=>({text:l.text,box:box(l.box),paragraph:!!l.paragraph,
-   edge:!!l.box&&(l.box.y0<=2||l.box.y1>=h-4),
+   edge:!!l.edge||!!l.box&&(l.box.y0<=2||l.box.y1>=h-4),
    side:!!l.box&&l.box.x0>w*.82&&l.box.y0>h*.7&&l.box.x1-l.box.x0<w*.12}));
   return {speaker:e.speaker,time:e.time,date:e.date,reply:e.reply,body:e.body,uncertain:!!e.uncertain||!!head?.nameResolution?.uncertain,
-   headerBox:box(e.headerBox),nameKey:head&&!head.clippedName?nameKey(p,w,h,head.nameROI):null,lines,
+   headerBox:box(e.headerBox),clippedName:!!head?.clippedName,nameObservations:head&&!head.clippedName?(head.nameObservations??[]):[],nameKey:head&&!head.clippedName?nameKey(p,w,h,head.nameROI):null,lines,
    atTop:!!lines[0]?.box&&lines[0].box.y0<h*.22,atBottom:!!lines.at(-1)?.box&&lines.at(-1).box.y1>h*.82};
  });
  return {viewport,entries};
 }
-function similarity(a,b){const x=Array.from(plain(a)),y=Array.from(plain(b));if(!x.length||!y.length)return 0;if(x.join('')===y.join(''))return 1;
+function similarity(a,b){const x=Array.from(plain(a)),y=Array.from(plain(b));if(!x.length||!y.length||x.length>1200||y.length>1200)return 0;if(x.join('')===y.join(''))return 1;
  if(Math.min(x.length,y.length)<8)return 0;
  const dp=Array.from({length:y.length+1},(_,i)=>i);for(let i=1;i<=x.length;i++){let prev=dp[0];dp[0]=i;for(let j=1;j<=y.length;j++){const old=dp[j];dp[j]=Math.min(dp[j]+1,dp[j-1]+1,prev+(x[i-1]!==y[j-1]));prev=old;}}
  return 1-dp[y.length]/Math.max(x.length,y.length);
@@ -85,14 +87,23 @@ function joinMessage(a,b,o){
  for(let i=0;i<b.lines.length;i++)if(!used.has(i)){const y=b.lines[i];out.push({...y,box:y.box?{...y.box,y0:y.box.y0+o.shift,y1:y.box.y1+o.shift}:null});recovered++;}
  out.sort((x,y)=>(x.box?.y0??0)-(y.box?.y0??0));
  const body=out.map((l,i)=>(i&&l.paragraph?'\n':'')+l.text).join('\n');
- const author=!a.speaker&&b.speaker||a.uncertain&&b.speaker&&!b.uncertain?b:a;
- return {entry:{...a,speaker:author.speaker,time:a.time??b.time,date:a.date??b.date,reply:a.reply??b.reply,body,uncertain:author.uncertain,nameKey:author.nameKey,lines:out},recovered};
+ const author=(!a.speaker||a.clippedName)&&b.speaker||a.uncertain&&b.speaker&&!b.uncertain?b:a;
+ // If a complete aligned header supersedes a clipped one, keep its observed
+ // name evidence as well; never assume a spelling from body similarity alone.
+ return {entry:{...a,speaker:author.speaker,time:a.time??b.time,date:a.date??b.date,reply:a.reply??b.reply,body,uncertain:author.uncertain,nameKey:author.nameKey,nameObservations:author.nameObservations,clippedName:author.clippedName,lines:out},recovered};
 }
 function unifyNames(results){
  const groups=new Map();for(const r of results)if(r.state==='done'&&r.records)for(const e of r.records.entries){if(!e.nameKey||!e.speaker)continue;if(!groups.has(e.nameKey))groups.set(e.nameKey,[]);groups.get(e.nameKey).push(e);}
  let count=0;for(const g of groups.values()){
-  const reliable=[...new Set(g.filter(e=>!e.uncertain).map(e=>e.speaker))];if(reliable.length!==1)continue;
-  for(const e of g)if(e.uncertain&&e.speaker!==reliable[0]){e.speaker=reliable[0];count++;}
+  const reliable=[...new Set(g.filter(e=>!e.uncertain).map(e=>e.speaker))];if(reliable.length>1)continue;
+  const spellings=[...new Set(g.map(e=>e.speaker))];
+  let chosen=reliable[0];
+  // All-uncertain groups may improve marks only with an actual independent
+  // name observation and compatible base glyphs. Conflicting marks stay put.
+  if(!chosen){const obs=g.flatMap(e=>e.nameObservations??[]);const candidates=[...new Set(spellings.map(n=>corroboratedName(n,obs)).filter(Boolean))];
+   if(candidates.length===1&&spellings.every(n=>n===candidates[0]||thaiMarkDominates(candidates[0],n)))chosen=candidates[0];}
+  if(!chosen)continue;
+  for(const e of g)if(e.uncertain&&e.speaker!==chosen){e.speaker=chosen;count++;}
  }return count;
 }
 function formatEntries(entries){const out=[];let date=null;for(const e of entries){if(e.dateMarker){if(date!==e.dateMarker){out.push(e);date=e.dateMarker;}continue;}if(e.date&&e.date!==date){date=e.date;out.push({dateMarker:date});}out.push(e);}return formatTextTranscript({entries:out});}

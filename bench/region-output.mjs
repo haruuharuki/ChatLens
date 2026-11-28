@@ -19,16 +19,42 @@ const spelling=s=>String(s??'').normalize('NFC').replace(/\u0e4d\u0e32/g,'\u0e33
 function spellingUnits(s){const out=[];for(const ch of spelling(s)){if(markOnly.test(ch)&&out.length&&/[\u0e01-\u0e2e]/u.test(out.at(-1).base))out.at(-1).marks+=ch;else out.push({base:ch,marks:''});}return out;}
 export function thaiMarkDominates(a,b){
  const x=spellingUnits(a),y=spellingUnits(b);if(x.length!==y.length||!x.length||x.some((u,i)=>u.base!==y[i].base))return false;
- let added=0;for(let i=0;i<x.length;i++){if(x[i].marks===y[i].marks)continue;if(y[i].marks||!x[i].marks)return false;added++;}return added>0;
+ let added=0;for(let i=0;i<x.length;i++){
+  const a=x[i].marks,b=y[i].marks;if(a===b)continue;
+  // A tone can be added on top of an already observed vowel. Existing marks
+  // must remain in order; conflicting tones/vowels or duplicate marks veto.
+  let j=0;for(const ch of a)if(ch===b[j])j++;
+  if(j!==b.length||new Set(a).size!==a.length||[...a].filter(ch=>/[\u0e48-\u0e4b]/u.test(ch)).length>1||[...a].filter(ch=>/[\u0e31\u0e34-\u0e3a]/u.test(ch)).length>1)return false;
+  added++;
+ }return added>0;
 }
 export function observedMarkReading(candidate,baseline,original=baseline){
  const readings=[candidate,baseline,original].map(spelling).filter(Boolean);
  const unique=[...new Set(readings)];
- // A richer reading must agree with at least one other observation on every
- // base glyph, and must not contradict any same-base competing mark.
- const sameBase=(a,b)=>{const x=spellingUnits(a),y=spellingUnits(b);return x.length===y.length&&x.every((u,i)=>u.base===y[i].base);};
- const choice=unique.filter(a=>thaiMarkDominates(a,candidate)&&unique.filter(b=>sameBase(a,b)).every(b=>a===b||thaiMarkDominates(a,b)));
- return choice.length===1?choice[0]:candidate;
+ const key=s=>s.replace(/\s+/gu,'');
+ const sameBase=(a,b)=>{const x=spellingUnits(key(a)),y=spellingUnits(key(b));return x.length===y.length&&x.every((u,i)=>u.base===y[i].base);};
+ const dominates=(a,b)=>thaiMarkDominates(key(a),key(b));
+ const choice=unique.filter(a=>dominates(a,candidate)&&unique.filter(b=>sameBase(a,b)).every(b=>key(a)===key(b)||dominates(a,b)));
+ const distinct=[...new Set(choice.map(key))];if(distinct.length!==1)return candidate;
+ const preferred=choice.find(a=>a===baseline)||choice[0];
+ // A vowel added by only one pass is not stronger than two matching
+ // readings. Tone-only restoration remains an observed alternative.
+ const x=spellingUnits(key(preferred)),y=spellingUnits(key(candidate));
+ const vowel=x.some((u,i)=>[...u.marks].some(ch=>!y[i].marks.includes(ch)&&/[\u0e31\u0e34-\u0e3a]/u.test(ch)));
+ if(vowel&&readings.filter(a=>key(a)===key(candidate)).length>=2&&readings.filter(a=>key(a)===key(preferred)).length<2)return candidate;
+ return preferred;
+}
+/** Reply previews have their own punctuation/ellipsis. Preserve the source
+ * layout, but allow a complete independently observed Thai word with richer
+ * marks when its neighboring word aligns exactly. No name or punctuation edits. */
+export function selectReplyContinuation(base,candidate,original){
+ const whole=observedMarkReading(base,candidate,original);if(whole!==base)return whole;
+ const segments=String(base).split(/(\s+)/u),a=segments.filter(s=>s.trim()),b=String(candidate).trim().split(/\s+/u),o=String(original??base).trim().split(/\s+/u);
+ if(a.length<2||a.length!==b.length||a.length!==o.length)return base;
+ const onlyThai=s=>/^[\p{Script=Thai}\p{M}]+$/u.test(s),canon=s=>spelling(s);
+ const same=(x,y)=>canon(x)===canon(y);
+ let i=0;return segments.map(s=>{if(!s.trim())return s;const j=i++,neighbor=(j>0&&same(a[j-1],b[j-1]))||(j+1<a.length&&same(a[j+1],b[j+1]));
+  return neighbor&&onlyThai(s)&&onlyThai(b[j])&&onlyThai(o[j])?observedMarkReading(s,b[j],o[j]):s;}).join('');
 }
 function shortCorroboratedFragment(c,b,o){
  const x=spelling(c),y=spelling(b);if(y!==spelling(o)||!/^\p{Script=Thai}+$/u.test(y)||!/^\p{Script=Thai}+$/u.test(x))return false;
@@ -47,8 +73,9 @@ export function selectBilingualText(candidate,baseline,original=baseline,{shortF
  if(dc.length!==db.length&&diceDigits(c)===diceDigits(b)&&diceDigits(c)&&closeText(c,b))return dc.length>db.length?c:b;
  // Punctuation seen in two passes should survive a dropped boundary mark.
  // Choose a complete observed reading, not a guessed character.
- const marker=s=>s.match(/^[.!?]|[.!?–—-]$/g)?.join('')||'';
- if(marker(b)&&marker(b)===marker(String(original).trim())&&!marker(c)&&norm(b)===norm(c))return b;
+ const marker=s=>s.match(/^[.!?…]|[.!?…,:;~–—-]$/gu)?.join('')||'';
+ const stripMarker=s=>s.replace(/^[.!?…]|[.!?…,:;~–—-]$/gu,'').replace(/\s+/gu,'');
+ if(marker(b)&&marker(b)===marker(String(original).trim())&&!marker(c)&&stripMarker(b)===stripMarker(c)&&stripMarker(String(original).trim())===stripMarker(c))return b;
  const bt=latin(b),ct=latin(c),ot=latin(original);
  // Edge-only Latin noise is common when an avatar/emoji is in a Thai crop.
  // Preserve mixed tokens only when they are between Thai text, or the other

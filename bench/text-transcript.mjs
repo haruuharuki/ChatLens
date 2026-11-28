@@ -5,7 +5,7 @@
  */
 import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 export {dateFromOCR};
-import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d5e';
+import {resolveBodyRows,hasBodyAlternative,selectBilingualText,observedMarkReading,selectReplyContinuation} from './region-output.mjs?v=e3';
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
@@ -41,7 +41,7 @@ function bodyText(row,kind){
  // mention reading if a later OCR pass lost its colored prefix.
  if(row.mention){
   const observed=[base,scrub(row.originalText??row.text),c].map(t=>{const i=t.indexOf('@');return i>=0?t.slice(i):'';}).filter(Boolean);
-  if(observed.length)return observed[0]; // complete observed tag; never invent a name
+  if(observed.length)return observedMarkReading(observed[0],observed[1]??observed[0],observed[2]??observed[0]); // complete observed tag; never invent a name
  }
 
  // Single-line OpenThai on a multi-line mixed raw block: crop was body-only.
@@ -50,6 +50,7 @@ function bodyText(row,kind){
   const body=(!row.error&&c&&substantive(c))?selectBilingualText(c,base,base):base;
   return substantive(body)?'@'+row.replyNameResolution.speaker+' '+body:scrub(row.originalText??row.text);
  }
+ if(kind==='reply'&&row.replyContinuation&&!row.error&&substantive(c))return selectReplyContinuation(base,c,row.originalText??row.text??base);
  if(kind==='reply'&&(row.bitmap||row.textLeft)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
  if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c)){const chosen=selectBilingualText(c,base,row.originalText??row.text??base,{shortFragment:kind==='fragment',reconcileMarks:kind!=='mixed'});return row.edgeTextTop!=null?chosen.replace(/^[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]+\s*/u,''):chosen;}
  return base;
@@ -70,7 +71,7 @@ export function assembleTextTranscript(rows=[]){
    if(!current){current={speaker:null,time:null,date,reply:null,parts:[],uncertain:true};}
    if(current.lastY!==undefined&&box&&box.y0-current.lastY>180&&current.speaker){flush();current={speaker:null,time:null,date,reply:null,parts:[],uncertain:true};warnings.push('ข้อความแยกห่างจากหัวข้อความมาก จึงไม่เดาผู้พูด');}
    const paragraph=Boolean(row?.paragraphBefore&&current.parts.length);if(paragraph)current.parts.push('');
-   const line=row?.bullet&&row.bulletRead&&!row.truth?'- '+s:s;current.parts.push(line);(current.sourceLines??=[]).push({text:line,box,paragraph});current.lastY=box?.y1;
+   const line=row?.bullet&&row.bulletRead&&!row.truth?'- '+s:s;current.parts.push(line);(current.sourceLines??=[]).push({text:line,box,paragraph,edge:!!row?.edgePartial});current.lastY=box?.y1;
  }
  for(let index=0;index<ordered.length;index++){
    const r=ordered[index];

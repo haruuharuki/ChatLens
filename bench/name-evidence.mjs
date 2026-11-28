@@ -1,6 +1,6 @@
 /** Same visible username pixels, not account identity. Local and per image. */
-import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=d5e';
-import {thaiMarkDominates} from './region-output.mjs?v=d5e';
+import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=e3';
+import {thaiMarkDominates} from './region-output.mjs?v=e3';
 const clean=s=>String(s??'').normalize('NFC').replace(/\s+/g,' ').trim();
 const valid=b=>b&&['x0','x1','y0','y1'].every(k=>Number.isInteger(b[k]))&&b.x1>b.x0&&b.y1>b.y0;
 export function identicalNamePixels(a,b,p,w,h){
@@ -39,7 +39,27 @@ function observations(r,head){
    }
   }
  }
+ if(r.kind==='header'&&!r.error){
+  const h=parseHeader(r.candidate,'header');if(h&&h.time===head.time&&h.date===head.date&&!h.tail)add(h.speaker,'open-full');
+ }
+ if(!parseHeader(r.nameOpenThai,'header'))add(r.nameOpenThai,'open-name');
  return out;
+}
+/** Select an entire observed spelling, not a reconstructed name. OpenThai
+ * cannot override a different base glyph, structured prefix, or conflicting mark. */
+export function corroboratedName(current,obs){
+ const base=clean(current);if(!nameOK(base))return null;
+ const skeleton=n=>clean(n).replace(/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/gu,'');
+ const compatible=n=>skeleton(n)===skeleton(base);
+ const options=[...new Set(obs.map(o=>o.name))].filter(n=>thaiMarkDominates(n,base));
+ const choices=options.filter(n=>{
+  const evidence=obs.filter(o=>o.name===n),open=evidence.some(o=>o.source==='open-name'),
+   other=evidence.some(o=>o.source!=='open-name');
+  // Isolated OpenThai plus a complete observed full-row/crop reading. A
+  // contradictory mark on the same base glyph vetoes the enhancement.
+  return open&&other&&obs.filter(o=>compatible(o.name)||thaiMarkDominates(o.name,base)).every(o=>o.name===n||thaiMarkDominates(n,o.name));
+ });
+ return choices.length===1?choices[0]:null;
 }
 /** Keep independent readings; never elevate a scaled crop just because the box is valid. */
 function localChoice(row,head,obs){
@@ -81,8 +101,8 @@ export function resolveNameEvidence(rows,p,w,h){
  for(let i=0;i<out.length;i++){
   const r=out[i];if(!['header','mixed'].includes(r.kind)||!r.nameEvidence||!r.nameROI||r.clippedName)continue;
   const head=chooseHeaderReading(r,r.originalText??r.text);if(!head)continue;
-  const obs=observations(r,head),choice=localChoice(r,head,obs);
-  const record={i,r,head,obs,choice};records.push(record);
+  const allObs=observations(r,head),obs=allObs.filter(o=>!o.source.startsWith('open-')),choice=localChoice(r,head,obs);
+  const record={i,r,head,obs,allObs,choice};records.push(record);
  }
  // Exact equality is transitive. No nearest-neighbor links or fuzzy merging.
  const groups=[];
@@ -133,7 +153,14 @@ export function resolveNameEvidence(rows,p,w,h){
   const same=group.every(r=>r.choice.speaker===group[0].choice.speaker);
   if(same)for(const r of group)r.choice={...r.choice,reason:'identical-pixels-agree'};
  }
- for(const r of records)out[r.i].nameResolution={...r.choice,time:r.head.time,date:r.head.date};
+ // Apply after existing same-image decisions so an uncorroborated new
+ // recognizer cannot undo the previously working bilingual-name rule.
+ for(const group of groups){
+  const obs=group.flatMap(r=>r.allObs);
+  const current=[...new Set(group.map(r=>r.choice.speaker))];
+  if(current.length===1){const n=corroboratedName(current[0],obs);if(n)for(const r of group)r.choice={speaker:n,reason:'independent-name-mark-evidence',uncertain:true};}
+  for(const r of group){out[r.i].nameResolution={...r.choice,time:r.head.time,date:r.head.date};out[r.i].nameObservations=r.allObs;}
+ }
  for(const row of out){if(!row.replyIdentity||row.kind!=='reply')continue;
   const box=row.replyIdentity.headerBox,record=records.find(r=>['x0','x1','y0','y1'].every(k=>r.r.nameROI[k]===box[k]));
   if(record)row.replyNameResolution={speaker:record.choice.speaker,uncertain:true,reason:'unique-visible-reply-name-shape'};

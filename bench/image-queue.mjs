@@ -1,5 +1,5 @@
 // E.2: queue order is explicit. Cross-image merging requires visual overlap.
-import {mergeQueueRecords} from './queue-merge.mjs?v=e2';
+import {mergeQueueRecords} from './queue-merge.mjs?v=e3';
 export const MAX_QUEUE_IMAGES=20;
 export function moveQueueItem(entries,index,delta){
  const next=index+delta;
