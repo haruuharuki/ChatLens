@@ -8,8 +8,8 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d1c';
-import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d2a';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d2b';
+import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d2b';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const $=id=>document.getElementById(id);
@@ -72,9 +72,9 @@ async function detectLines(file){
     const headerBox={x0:band.x0,y0:band.y0,x1:band.x1,y1:band.y1};
     const overlaps=original.filter(l=>Math.min(l.bbox.y1,band.y1)-Math.max(l.bbox.y0,band.y0)>=Math.min(12,(l.bbox.y1-l.bbox.y0)*.35));
     if(overlaps.some(l=>l.kind==='reply'))continue;
-    const nearby=overlaps.filter(l=>['header','mixed'].includes(l.kind))
-      .map(l=>String(l.text||'').replace(/\s+/g,' ').trim())
-      .find(t=>parseDiscordTimestamp(t,{allowBare24:true}));
+    const nearbyLine=overlaps.filter(l=>['header','mixed'].includes(l.kind))
+      .find(l=>parseDiscordTimestamp(String(l.text||'').replace(/\s+/g,' ').trim(),{allowBare24:true}));
+    const nearby=nearbyLine?String(nearbyLine.text||'').replace(/\s+/g,' ').trim():'';
     const reread=await rereadRegion({bbox:headerBox},'header');
     if(!nearby&&!parseDiscordTimestamp(reread))continue;
     const nameBox={...headerBox,x1:Math.min(headerBox.x1,Math.max(headerBox.x0+24,band.nameEnd+12))};
@@ -82,7 +82,7 @@ async function detectLines(file){
     const {text,usedNameOnly}=combineRecognizedHeader({full:reread,nameOnly,nearby});
     if(!parseHeader(text,'header'))continue;
     accepted.push(band);
-    headers.push({text,bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านชื่อและเวลา':'ตรวจแถวชื่อจากตำแหน่งภาพ (ยังต้องตรวจชื่อ)',layoutHeader:true});
+    headers.push({text,bbox:headerBox,headerTailBox:text===nearby?nearbyLine?.bbox:headerBox,kind:'header',reason:usedNameOnly?'แยกอ่านชื่อและเวลา':'ตรวจแถวชื่อจากตำแหน่งภาพ (ยังต้องตรวจชื่อ)',layoutHeader:true});
    }
    const separation=splitBoxesAtHeaders(original,accepted,imageCanvas.width);
    const improved=[...headers];
@@ -281,14 +281,14 @@ function refreshTranscript(force=false){
   return {...line,originalText:line.text,
    baseline:item?.baseline??line.text,
    candidate:item?.candidate??null,
-   error:Boolean(item?.error),truth:item?.truth??''};
+   error:Boolean(item?.error),truth:item?.truth??'',bodyOnly:line.kind==='mixed'?Boolean(item?.prepared?.mixedBand):true};
  });
  const result=assembleTextTranscript(rows);
  $('transcript-text').value=formatTextTranscript(result);
  $('transcript-warning').textContent=[
   'เป็นร่างจากภาพเท่านั้น: OCR อาจอ่านชื่อ เวลา และเนื้อหาผิด และยังไม่ยืนยันว่าเก็บครบทั้งภาพ',
   ...result.warnings,
-  `ข้อความไม่ทราบผู้พูด ${result.unknownCount} ช่วง · รูปภาพที่สงสัย ${result.graphicCount} กรอบ`
+  `ข้อความไม่ทราบผู้พูด ${result.unknownCount} ช่วง · รูปภาพที่สงสัย ${result.graphicCount} กรอบ · รวมผลอ่านซ้ำจากพื้นที่เดียวกัน ${result.duplicateCount} รายการ`
  ].join(' · ');
  $('transcript-panel').hidden=false;
  transcriptEdited=false;

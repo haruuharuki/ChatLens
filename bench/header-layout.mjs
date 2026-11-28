@@ -60,8 +60,8 @@ export function splitBoxesAtHeaders(lines,bands,width){
   if(b.y1-lower>=17 && b.y1-b.y0<=170){
    // Lower band must start under the colored name row. We deliberately do not
    // reuse mixed OCR: it contains a header, so caller must re-read this crop.
-   out.push({...line,kind:'body',bbox:{x0:b.x0,y0:lower,
-     x1:b.x1,y1:b.y1},text:'',needsBodyRead:true,reason:'แยกข้อความใต้แถวชื่อด้วยตำแหน่งภาพ'});
+   const bodyBox={x0:b.x0,y0:lower,x1:b.x1,y1:b.y1};
+   out.push({...line,kind:'body',bbox:bodyBox,sourceBodyBox:bodyBox,splitBody:true,text:'',needsBodyRead:true,reason:'แยกข้อความใต้แถวชื่อด้วยตำแหน่งภาพ'});
    split++;
   }else{out.push({...line,kind:'covered',reason:'อ่านแถวชื่อแยกต่างหาก'});covered++;}
  }
@@ -87,6 +87,18 @@ export function combineRecognizedHeader({full='',nameOnly='',nearby=''}={}){
    !/\b(?:TTO|DAV|MEOW|APP)\b/i.test(name)&&
    !(name.match(/[<>{}\^~@#$%]/g)||[]).length;
  if(time&&plausible){
+  // Preserve a Latin token in a bilingual name only when both independent
+  // full-row readings contain it and the Thai portion agrees. A role suffix
+  // after the name is not evidence of a missing Latin username.
+  if(fullTime&&nearTime&&fullTime.time===nearTime.time&&(!fullTime.date||!nearTime.date||fullTime.date===nearTime.date)){
+   const prefix=(text,stamp)=>String(text).slice(0,stamp.index).trim().replace(/\s*(?:\[(?:TTO|DAV|APP|MEOW)\]|(?:TTO|DAV|APP|MEOW))\s*$/i,'').trim();
+   const a=prefix(full,fullTime),b=prefix(nearby,nearTime);
+   const mixed=a.match(/([A-Za-z]{2,}(?:[-_][A-Za-z]{2,})*)\s*\|\s*([\u0e01-\u0e5b][^|]*)$/u);
+   const suffix=name.split('|').at(-1).trim();
+   if(mixed&&a===b&&!name.toLowerCase().includes(mixed[1].toLowerCase())&&suffix===mixed[2].trim()&&a!==name){
+    return {text:`${a} ${(fullTime.date?fullTime:nearTime).raw}`,usedNameOnly:false};
+   }
+  }
   const original=nearTime?String(nearby).slice(0,nearTime.index).trim():'';
   if(original.length>name.length&&original.endsWith(name)&&(!fullTime||fullTime.time===nearTime.time))return {text:String(nearby).trim(),usedNameOnly:false};
   if(fullTime&&!fullTime.date&&nearTime?.date&&fullTime.time===nearTime.time)return {text:`${name} ${nearTime.raw}`,usedNameOnly:true};
