@@ -1,4 +1,5 @@
 /** Dark mobile Discord geometry. No private text or device-specific coordinates. */
+import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 const valid=b=>b&&b.x1>b.x0&&b.y1>b.y0;
 const span=(a,b)=>Math.max(0,Math.min(a.y1,b.y1)-Math.max(a.y0,b.y0));
 const median=a=>a.length?a.sort((x,y)=>x-y)[Math.floor(a.length/2)]:0;
@@ -39,6 +40,29 @@ export function hasMentionBackground(b,p,w,h,column){
  let n=0,total=0;
  for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,b.y1);y+=2)for(let x=x0;x<x1;x+=2){const [r,g,bl]=rgb(p,w,x,y);total++;if(bl>=45&&bl<=140&&bl>r+12&&bl>g+9&&r<100)n++;}
  return total>0&&n/total>.22;
+}
+/** A broad OCR container can include both a timed header and a highlighted
+ * mention on the next physical row. Preserve the header evidence until split.
+ * The timestamp alone is insufficient: require a separate lower mention box
+ * (or the already observed body band) and no highlight on the upper row. */
+export function mixedMentionContainer(row,rows,p,w,h,column){
+ const b=row.bbox;if(!valid(b)||!['header','mixed'].includes(row.kind)||!parseDiscordTimestamp(String(row.text||''),{allowBare24:true}))return false;
+ const H=b.y1-b.y0;
+ const lower=rows.filter(q=>q!==row&&valid(q.bbox)&&q.bbox.y0>=b.y0+H*.35&&q.bbox.y0<b.y1&&span(b,q.bbox)>=.65*(q.bbox.y1-q.bbox.y0)&&hasMentionBackground(q.bbox,p,w,h,column));
+ const cut=lower.length===1?lower[0].bbox.y0:row.bodyBand&&row.bodyBand.top>=H*.35?b.y0+row.bodyBand.top:null;
+ return cut!==null&&cut<b.y1&&!hasMentionBackground({...b,y1:cut-2},p,w,h,column)&&hasMentionBackground({...b,y0:cut},p,w,h,column);
+}
+/** The candidate strip owns its own pixels. A mention in a different row
+ * cannot veto a real header merely because the OCR container overlaps both. */
+export function headerBandBlocked(box,rows,p,w,h,column){
+ if(hasMentionBackground(box,p,w,h,column))return true;
+ return rows.some(r=>r.kind==='reply'&&valid(r.bbox)&&span(box,r.bbox)>=.6*(r.bbox.y1-r.bbox.y0));
+}
+/** Limit fallback clock evidence to the first physical row of a container. */
+export function headerClockAligned(box,row){
+ const b=row.bbox;if(!valid(box)||!valid(b))return false;
+ const H=box.y1-box.y0;
+ return span(box,b)>=Math.min(12,(b.y1-b.y0)*.35)&&Math.abs(box.y0-b.y0)<=Math.max(12,H*.65);
 }
 /** Detect small isolated circular bullet in left margin, with distinct text following. */
 export function bulletRegion(b,p,w,h,column){
@@ -92,7 +116,7 @@ export function refineSemanticRows(rows,p,w,h,column){
  const out=rows.map(r=>({...r}));const heights=out.filter(r=>r.kind==='body'&&!r.splitBody&&valid(r.bbox)).map(r=>r.bbox.y1-r.bbox.y0),typical=median(heights);
  for(const r of out){const b=r.bbox;if(!valid(b))continue;const H=b.y1-b.y0;
   if(['fragment','reply'].includes(r.kind)&&controlRegion(b,p,w,h,column)){r.kind='graphic';r.reason='ปุ่มควบคุมหรือ Reaction ที่สงสัย';continue;}
-  if(['body','fragment','header','mixed','reply'].includes(r.kind)&&!r.replyContinuation&&hasMentionBackground(b,p,w,h,column)){r.kind='body';r.mention=true;r.layoutHeader=false;r.nameROI=null;r.nameEvidence=null;r.reason='Mention ในเนื้อหา ไม่ใช่หัวข้อความหรือ Reply';}
+  if(['body','fragment','header','mixed','reply'].includes(r.kind)&&!r.replyContinuation&&hasMentionBackground(b,p,w,h,column)&&!mixedMentionContainer(r,out,p,w,h,column)){r.kind='body';r.mention=true;r.layoutHeader=false;r.nameROI=null;r.nameEvidence=null;r.reason='Mention ในเนื้อหา ไม่ใช่หัวข้อความหรือ Reply';}
   else if(r.kind==='reply'&&!r.replyContinuation){const left=replyTextLeft(b,p,w,h,column);if(left!==null)r.textLeft=left;}
 
   if(['body','fragment'].includes(r.kind)){
@@ -106,11 +130,18 @@ export function refineSemanticRows(rows,p,w,h,column){
    }
   }
  }
- // One physical highlighted mention takes precedence over a clipped split
- // of the same line, but only when the mention box contains its text side.
- for(const r of out){if(!r.splitBody||r.kind!=='body')continue;const b=r.bbox;
-  const q=out.find(x=>x.mention&&span(b,x.bbox)>=.75*Math.min(b.y1-b.y0,x.bbox.y1-x.bbox.y0)&&x.bbox.x1>=b.x1-12);
-  if(q){r.kind='covered';r.reason='กรอบซ้ำของ Mention';}
+ // A recovery strip can be suppressed only by a distinct standalone mention
+ // covering the same physical line, with no extra text-side ink. Do not
+ // suppress a row solely because its text resembles another mention.
+ for(const r of out){if(!r.splitBody||r.kind!=='body'||!valid(r.bbox))continue;const b=r.bbox;
+  const q=out.filter(x=>x!==r&&!x.splitBody&&x.kind==='body'&&x.mention&&valid(x.bbox)&&span(b,x.bbox)>=.75*Math.min(b.y1-b.y0,x.bbox.y1-x.bbox.y0)&&x.bbox.x1>=b.x1-12);
+  if(q.length!==1)continue;
+  const a=q[0].bbox;let inside=0,extra=0;
+  for(let y=Math.max(0,Math.floor(b.y0));y<Math.min(h,Math.ceil(b.y1));y++)for(let x=Math.max(0,Math.floor(column.x-5));x<Math.min(w,Math.ceil(b.x1));x++){
+   if(lum(rgb(p,w,x,y))<95)continue;
+   if(x<a.x0-5||x>=a.x1+5||y<a.y0-5||y>=a.y1+5)extra++;else inside++;
+  }
+  if(inside>=12&&!extra){r.kind='covered';r.reason='กรอบซ้ำของ Mention (ตรวจพิกเซลแล้ว)';}
  }
  // A clipped recovery sliver is not a second spoken line. Compare its actual
  // text-side ink with one taller overlapping row; preserve the raw candidate.
