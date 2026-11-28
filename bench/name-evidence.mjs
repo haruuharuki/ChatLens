@@ -1,6 +1,6 @@
 /** Same visible username pixels, not account identity. Local and per image. */
-import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=e3';
-import {thaiMarkDominates} from './region-output.mjs?v=e3';
+import {parseHeader,chooseHeaderReading} from './text-transcript.mjs?v=e31';
+import {thaiMarkDominates} from './region-output.mjs?v=e31';
 const clean=s=>String(s??'').normalize('NFC').replace(/\s+/g,' ').trim();
 const valid=b=>b&&['x0','x1','y0','y1'].every(k=>Number.isInteger(b[k]))&&b.x1>b.x0&&b.y1>b.y0;
 export function identicalNamePixels(a,b,p,w,h){
@@ -43,6 +43,7 @@ function observations(r,head){
   const h=parseHeader(r.candidate,'header');if(h&&h.time===head.time&&h.date===head.date&&!h.tail)add(h.speaker,'open-full');
  }
  if(!parseHeader(r.nameOpenThai,'header'))add(r.nameOpenThai,'open-name');
+ if(r.nameVariant&&clean(r.nameVariant.open)===clean(r.nameVariant.tess)&&!parseHeader(r.nameVariant.open,'header')){add(r.nameVariant.open,'open-name');add(r.nameVariant.tess,'variant-name');}
  return out;
 }
 /** Select an entire observed spelling, not a reconstructed name. OpenThai
@@ -101,7 +102,7 @@ export function resolveNameEvidence(rows,p,w,h){
  for(let i=0;i<out.length;i++){
   const r=out[i];if(!['header','mixed'].includes(r.kind)||!r.nameEvidence||!r.nameROI||r.clippedName)continue;
   const head=chooseHeaderReading(r,r.originalText??r.text);if(!head)continue;
-  const allObs=observations(r,head),obs=allObs.filter(o=>!o.source.startsWith('open-')),choice=localChoice(r,head,obs);
+  const allObs=observations(r,head),obs=allObs.filter(o=>!o.source.startsWith('open-')&&o.source!=='variant-name'),choice=localChoice(r,head,obs);
   const record={i,r,head,obs,allObs,choice};records.push(record);
  }
  // Exact equality is transitive. No nearest-neighbor links or fuzzy merging.
