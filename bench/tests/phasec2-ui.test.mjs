@@ -5,12 +5,12 @@ const html=readFileSync(new URL('../batch.html',import.meta.url),'utf8');
 const js=readFileSync(new URL('../batch.js',import.meta.url),'utf8');
 
 test('Phase C.2 has opt-out geometry plus a review panel for skipped lines',()=>{
- assert.match(html,/Phase D\.2c\.1–2/);
+ assert.match(html,/Phase D\.2c\.3–4 \+ D\.3a/);
  assert.match(html,/id="layout-focus"/);
  assert.match(html,/id="review-panel"/);
  assert.match(html,/id="review-lines"/);
  assert.match(html,/id="review"/);
- assert.match(html,/batch\.js\?build=phase-d2c12-20261128/);
+ assert.match(html,/batch\.js\?build=phase-d2c34-d3a-20261128/);
 });
 test('all DOM element IDs used by C.2 code exist in HTML',()=>{
  const ids=[...js.matchAll(/\$\('([\w-]+)'\)/g)].map(m=>m[1]);
@@ -68,4 +68,13 @@ test('D.1c simple default selects all text and puts editable transcript before a
  assert.ok(html.indexOf('id="transcript-panel"')<html.indexOf('id="advanced-results"'));
  assert.doesNotMatch(html,/<details id="advanced-(?:settings|results)"[^>]*\bopen\b/);
  assert.match(js,/if\(!nearby&&!parseDiscordTimestamp\(reread\)\)continue;/);
+});
+
+test('D.2c.3–4 + D.3a wires pre-OCR backup, structural classification and raw tight name reading',()=>{
+ assert.match(js,/const primary=redundantSplit\(/);
+ assert.match(js,/alternateBody:true,primaryBox:primary\.bbox/);
+ assert.match(js,/const tightName=isolateNameBox\(/);
+ assert.match(js,/rereadRegion\(\{bbox:tightName\|\|nameBox\},'header',tightName\?2:1\)/);
+ assert.match(js,/ocrLines=classifyStructure\(/);
+ assert.match(js,/needsAlternateReading\(item\.baseline,item\.candidate,item\.error\)/);
 });

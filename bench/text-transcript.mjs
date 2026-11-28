@@ -82,7 +82,7 @@ export function assembleTextTranscript(rows=[]){
    if(kind==='reply'){
      const reply=bodyText(r,kind);
      // Only preview quotes, not normal mentions, can become reply notes.
-     if(reply&&substantive(reply))pendingReply=reply;
+     if(reply&&substantive(reply)){if(r.replyContinuation&&pendingReply)pendingReply+='\n'+reply;else pendingReply=reply;}
      continue;
    }
    if(kind==='mixed'){
@@ -117,7 +117,7 @@ export function formatTextTranscript(result){
  for(const e of entries){
    if(e.dateMarker){lines.push(`[${e.dateMarker}]`);continue;}
    const head=`[${e.speaker||'ไม่ทราบผู้พูด'}] - ${e.time||'ไม่ทราบเวลา'}`;
-   const reply=e.reply?`> ตอบกลับ: ${e.reply}\n`:'';
+   const reply=e.reply?`> ตอบกลับ: ${e.reply.replace(/\n/g,'\n> ')}\n`:'';
    lines.push(reply+head+'\n'+(e.body||'[ยังอ่านข้อความไม่ครบ]'));
  }
  return lines.join('\n\n').trim();
