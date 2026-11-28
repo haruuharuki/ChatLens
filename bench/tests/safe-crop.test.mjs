@@ -37,5 +37,5 @@ test('browser uses conservative crop and disables both additional left masks',()
  assert.match(js,/const detected=.*conversationCrop\(/);
  assert.match(js,/anchorX:null/);assert.match(js,/enableAvatarGuard:false/);
  assert.doesNotMatch(js,/bodyTextAnchor/);
- assert.match(js,/leftFraction:cropApplied\?\.025:\.07/);
+ assert.match(js,/leftFraction:textColumn\?Math\.max\(0,\(textColumn\.x-6\)\/imageCanvas\.width\):\(cropApplied\?\.025:\.07\)/);
 });
