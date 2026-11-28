@@ -89,6 +89,22 @@ export function visualEditedEdge(b,p,w,h,column){
  if(edgeSpan(l)<mh*.70||edgeSpan(r)<mh*.70)return null;
  return Math.min(end,last+3);
 }
+/** A clipped colored author strip can be joined to the next complete white
+ * body line by OCR. Keep the body; remove only the edge strip with no white
+ * glyphs. Never trim normal top-line diacritics or highlighted mentions. */
+export function edgeTextTop(b,p,w,h,column,T){
+ if(!valid(b)||!column||T<12||b.y0>2||b.y1<T*.85)return null;
+ const start=Math.max(0,Math.floor(column.x-T*.12)),end=Math.min(w,b.x1);
+ let lastColor=-1,firstWhite=-1,colors=0,white=0;
+ for(let y=0;y<Math.min(b.y1,Math.ceil(T*.65));y++){
+  let c=0,n=0;for(let x=start;x<end;x++){const q=rgb(p,w,x,y);if(max(q)>=105&&max(q)-min(q)>35)c++;if(bright(q))n++;}
+  if(n>=3){firstWhite=y;white=n;break;}if(c){lastColor=y;colors+=c;}
+ }
+ if(colors<8||lastColor<1||firstWhite<lastColor+1||firstWhite>T*.48||white<3)return null;
+ // Must be an actual white body below, not a cropped colored tag or header.
+ let main=0;pixels({...b,x0:start,y0:firstWhite},w,h,(x,y)=>{if(bright(rgb(p,w,x,y)))main++;});
+ return main>=Math.max(30,colors*4)?lastColor+1:null;
+}
 export function refineEdgeRows(rows,p,w,h,column,{cropped=false}={}){
  if(!p||!column)return rows;const T=typicalTextHeight(rows,w,h);if(T<12)return rows;
  const controls=findControlBoxes(p,w,h,column,T);
@@ -99,6 +115,7 @@ export function refineEdgeRows(rows,p,w,h,column,{cropped=false}={}){
    let ink=0,cut=0;pixels(name,w,h,(x,y)=>{const c=rgb(p,w,x,y);if(max(c)>=105&&max(c)-min(c)>35){ink++;if(y<=2)cut++;}});
    if(ink>=30&&cut>=Math.max(6,ink*.035))return {...r,clippedName:true,reason:'ชื่อถูกตัดขอบบน — เก็บเฉพาะเวลาและเนื้อหาที่เห็น'};
   }
+  if(cropped&&['body','fragment'].includes(r.kind)&&!r.bullet){const top=edgeTextTop(b,p,w,h,column,T);if(top!==null)return {...r,edgeTextTop:top,reason:'ตัดเศษหัวชื่อที่ขอบบน แต่เก็บแถวข้อความจริง'};}
   if(clippedEdge(b,p,w,h,column,T))return {...r,kind:'covered',alternateBody:false,edgeClipped:true,reason:'ขอบภาพตัดตัวอักษร ไม่ส่งเข้าบทสนทนา'};
   if(['body','fragment','reply'].includes(r.kind)&&controlOwned(b,controls,p,w,h,column,T))return {...r,kind:'graphic',alternateBody:false,reason:'พิกเซลอยู่ในปุ่ม Reaction/ลูกศร'};
   return r;

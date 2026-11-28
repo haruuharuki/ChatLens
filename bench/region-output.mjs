@@ -12,9 +12,31 @@ function similarity(a,b){
  return 1-p[y.length]/Math.max(x.length,y.length);
 }
 const closeText=(a,b)=>{const x=norm(a),y=norm(b);return !!x&&!!y&&(x===y||Math.min(x.length,y.length)>=4&&similarity(x,y)>=.72);};
+// Compare complete observed readings, not a generated spelling. Only Thai
+// combining marks may differ; spaces and punctuation otherwise stay intact.
+const markOnly=/[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]/u;
+const spelling=s=>String(s??'').normalize('NFC').replace(/\u0e4d\u0e32/g,'\u0e33').trim();
+function spellingUnits(s){const out=[];for(const ch of spelling(s)){if(markOnly.test(ch)&&out.length&&/[\u0e01-\u0e2e]/u.test(out.at(-1).base))out.at(-1).marks+=ch;else out.push({base:ch,marks:''});}return out;}
+export function thaiMarkDominates(a,b){
+ const x=spellingUnits(a),y=spellingUnits(b);if(x.length!==y.length||!x.length||x.some((u,i)=>u.base!==y[i].base))return false;
+ let added=0;for(let i=0;i<x.length;i++){if(x[i].marks===y[i].marks)continue;if(y[i].marks||!x[i].marks)return false;added++;}return added>0;
+}
+export function observedMarkReading(candidate,baseline,original=baseline){
+ const readings=[candidate,baseline,original].map(spelling).filter(Boolean);
+ const unique=[...new Set(readings)];
+ // A richer reading must agree with at least one other observation on every
+ // base glyph, and must not contradict any same-base competing mark.
+ const sameBase=(a,b)=>{const x=spellingUnits(a),y=spellingUnits(b);return x.length===y.length&&x.every((u,i)=>u.base===y[i].base);};
+ const choice=unique.filter(a=>thaiMarkDominates(a,candidate)&&unique.filter(b=>sameBase(a,b)).every(b=>a===b||thaiMarkDominates(a,b)));
+ return choice.length===1?choice[0]:candidate;
+}
+function shortCorroboratedFragment(c,b,o){
+ const x=spelling(c),y=spelling(b);if(y!==spelling(o)||!/^\p{Script=Thai}+$/u.test(y)||!/^\p{Script=Thai}+$/u.test(x))return false;
+ const a=spellingUnits(x),d=spellingUnits(y);return a.length===d.length&&d.length>=3&&d.length<=6&&a.filter((u,i)=>u.base!==d[i].base).length===1&&a.every((u,i)=>u.marks===d[i].marks);
+}
 /** Prefer an intact observed reading only when a corroborated Latin word was lost
  * and the surrounding Thai text still agrees. Never splice or translate words. */
-export function selectBilingualText(candidate,baseline,original=baseline){
+export function selectBilingualText(candidate,baseline,original=baseline,{shortFragment=false}={}){
  const c=String(candidate??'').trim(),b=String(baseline??'').trim();
  if(!c)return b;if(!b)return c;
  // Structured dice notation is a real observed mixed token, not a dictionary
@@ -25,7 +47,7 @@ export function selectBilingualText(candidate,baseline,original=baseline){
  if(dc.length!==db.length&&diceDigits(c)===diceDigits(b)&&diceDigits(c)&&closeText(c,b))return dc.length>db.length?c:b;
  // Punctuation seen in two passes should survive a dropped boundary mark.
  // Choose a complete observed reading, not a guessed character.
- const marker=s=>s.match(/^[.!?]|[.!?]$/g)?.join('')||'';
+ const marker=s=>s.match(/^[.!?]|[.!?–—-]$/g)?.join('')||'';
  if(marker(b)&&marker(b)===marker(String(original).trim())&&!marker(c)&&norm(b)===norm(c))return b;
  const bt=latin(b),ct=latin(c),ot=latin(original);
  // Edge-only Latin noise is common when an avatar/emoji is in a Thai crop.
@@ -33,7 +55,7 @@ export function selectBilingualText(candidate,baseline,original=baseline){
  // engine already sees Latin as well. Pure English keeps the old rule.
  const interior=latin(b.match(/[\u0e01-\u0e5b].*[\u0e01-\u0e5b]/u)?.[0]||'');
  const missing=bt.filter(t=>!ct.includes(t)&&ot.includes(t)&&(!thai(b)||ct.length||interior.includes(t)));
- if(!missing.length)return c;
+ if(!missing.length){const marked=observedMarkReading(c,b,original);if(marked!==c)return marked;return shortFragment&&shortCorroboratedFragment(c,b,original)?b:c;}
  const tb=thai(b),tc=thai(c);
  if(tb.length>=2&&tc.length>=2&&similarity(tb,tc)>=.65)return b;
  if(!tb&&bt.length&&!ct.length&&norm(b)===norm(original))return b;

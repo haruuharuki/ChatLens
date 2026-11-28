@@ -1,7 +1,7 @@
 import {linkReplyRegions} from './reply-identity.mjs?v=d5d';
-import {refineEdgeRows} from './d5d-layout.mjs?v=d5d';
-import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5d';
-import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d5d';
+import {refineEdgeRows} from './d5d-layout.mjs?v=d5e';
+import {conversationCrop,refineSemanticRows,headerBandBlocked,headerClockAligned,timedAuthorEvidence} from './d4-layout.mjs?v=d5e';
+import {identicalNamePixels,resolveNameEvidence} from './name-evidence.mjs?v=d5e';
 import {trailingBitmap} from './graphic-edge.mjs?v=d4';
 import {redundantSplit,tightenRecovery,classifyStructure,isolateNameBox,needsAlternateReading,alternateMatches} from './region-plan.mjs?v=d4';
 import {inferTextColumn,safeTextLeft,allowVerticalBand} from './smart-region.mjs?v=d2c12';
@@ -15,7 +15,7 @@ import {classifyDiscordLine,coloredNameFraction,cleanBodyLineRGBA} from './line-
 import {isolateBodyLayoutRGBA,referenceHasArtworkNotes} from './layout-guard.mjs';
 import {auditDetectedRegion,extendTextRight} from './region-audit.mjs?v=d1c';
 import {maskNonTextColors} from './text-color-mask.mjs';
-import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d5d';
+import {assembleTextTranscript,formatTextTranscript,parseHeader} from './text-transcript.mjs?v=d5e';
 import {discoverHeaderBands,splitBoxesAtHeaders,combineRecognizedHeader} from './header-layout.mjs?v=d4';
 
 import {parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
@@ -217,7 +217,7 @@ function preparedLineCanvas(line){
  const expansion=!line.mention&&geometry&&$('extend-text').checked&&['body','mixed'].includes(line.kind)&&imagePixels?
   extendTextRight(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget):null;
  const safeLeft=!line.mention&&geometry&&line.kind==='body'?safeTextLeft(imagePixels,imageCanvas.width,imageCanvas.height,bodyTarget,textColumn):null;
- const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX,safeLeft??0,line.textLeft??0),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY);
+ const x0=Math.max(0,Math.floor(bodyTarget.x0)-padX,safeLeft??0,line.textLeft??0),y0=Math.max(0,Math.floor(bodyTarget.y0)-padY,line.edgeTextTop??0);
  const bitmap=!line.mention&&geometry&&['body','reply'].includes(line.kind)?trailingBitmap({...bodyTarget,x1:Math.min(imageCanvas.width,Math.ceil(expansion||bodyTarget.x1))},imagePixels,imageCanvas.width,imageCanvas.height,textColumn):null;
  const x1=Math.min(imageCanvas.width,line.textRight??bitmap?.cutX??Math.ceil(expansion||bodyTarget.x1)+padX),y1=Math.min(imageCanvas.height,Math.ceil(bodyTarget.y1)+padY);
  const c=document.createElement('canvas');c.width=Math.max(1,x1-x0);c.height=Math.max(1,y1-y0);
@@ -357,7 +357,7 @@ function refreshStats(){
 }
 function safeReport(){const c=counts();return safeBatchReport({detected:ocrLines.length,selected:items.length,completed:c.done.length,identical:c.identical,different:c.different,failures:c.failures,cancelled:wasCancelled,tesseractMs,modelLoadMs,inferenceMs:totalInferenceMs,withTruth:items.filter(x=>x.truth.trim()&&!referenceHasArtworkNotes(x.truth)).length,tesseractLineMs,flaggedNonBody:ocrLines.filter(x=>x.kind!=='body').length});}
 function transcriptReport(){
- return ['ChatLens D.5d — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Edge clips: ${ocrLines.filter(l=>l.edgeClipped).length}; UI/graphic: ${ocrLines.filter(l=>l.kind==='graphic').length}; Reply identity links: ${ocrLines.filter(l=>l.replyIdentity).length}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
+ return ['ChatLens D.5e — local side-by-side comparison',`Tesseract full screenshot ${tesseractMs} ms; OpenThai model load ${modelLoadMs} ms; sum inference ${totalInferenceMs} ms`,`Text column: ${JSON.stringify(textColumn)}`,`Edge clips: ${ocrLines.filter(l=>l.edgeClipped).length}; Edge strips: ${ocrLines.filter(l=>l.edgeTextTop!=null).length}; UI/graphic: ${ocrLines.filter(l=>l.kind==='graphic').length}; Reply identity links: ${ocrLines.filter(l=>l.replyIdentity).length}`,`Backup regions: ${JSON.stringify(ocrLines.map((l,i)=>l.alternateBody?{line:i+1,box:l.bbox}:null).filter(Boolean))}`, ...items.map(item=>`\n# Line ${item.index+1}\nKind: ${item.line.kind}; splitBody: ${Boolean(item.line.splitBody)}; layoutHeader: ${Boolean(item.line.layoutHeader)}\nName resolution: ${JSON.stringify(lastNameResolutions[item.index]??null)}\nName evidence: ${JSON.stringify(item.line.nameEvidence??null)}\nName ROI: ${JSON.stringify(item.line.nameROI??null)}; replyContinuation: ${Boolean(item.line.replyContinuation)}\nSource box: ${JSON.stringify(item.line.sourceBodyBox??item.line.bbox)}\nROI box: ${JSON.stringify(item.line.bbox)}; prepared: ${item.prepared.canvas.width}x${item.prepared.canvas.height}; origin: ${JSON.stringify(item.prepared.preparedOrigin??null)}; semantic: ${JSON.stringify({bullet:!!item.line.bullet,mention:!!item.line.mention,edited:!!item.line.edited,edgeTextTop:item.line.edgeTextTop??null,paragraph:!!item.line.paragraphBefore,textLeft:item.line.textLeft??null,textRight:item.line.textRight??null})}; smartLeft: ${item.prepared.smartLeft??"none"}; trailingBitmap: ${JSON.stringify(item.prepared.bitmap??null)}\nOriginal: ${item.rawBaseline}\nTesseract: ${item.baseline}\nOpenThai: ${item.error?'[ERROR]':item.candidate??'[NOT RUN]'}${item.truth.trim()?`\nGround truth: ${item.truth}`:''}`)].join('\n');
 }
 async function copyOrShow(text){
  try{await navigator.clipboard.writeText(text);say('✓ คัดลอกแล้ว');}

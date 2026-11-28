@@ -5,7 +5,7 @@
  */
 import {dateFromOCR,dateSeparator,parseDiscordTimestamp} from './discord-timestamp.mjs?v=d1c';
 export {dateFromOCR};
-import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d5d';
+import {resolveBodyRows,hasBodyAlternative,selectBilingualText} from './region-output.mjs?v=d5e';
 const THAI=/[\u0e01-\u0e5b]/;
 const EMPTY_ART=/^(?:[._\-–—\d\s!"'`~@#%&*()+=<>?\/\\|:;]+)$/;
 function scrub(s){return String(s||'').normalize('NFC').replace(/\r/g,'').trim();}
@@ -51,7 +51,7 @@ function bodyText(row,kind){
   return substantive(body)?'@'+row.replyNameResolution.speaker+' '+body:scrub(row.originalText??row.text);
  }
  if(kind==='reply'&&(row.bitmap||row.textLeft)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
- if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c))return selectBilingualText(c,base,row.originalText??row.text??base);
+ if(['body','mixed','fragment'].includes(kind)&&!row.error&&c&&substantive(c)){const chosen=selectBilingualText(c,base,row.originalText??row.text??base,{shortFragment:kind==='fragment'});return row.edgeTextTop!=null?chosen.replace(/^[\u0e31\u0e34-\u0e3a\u0e47-\u0e4e]+\s*/u,''):chosen;}
  return base;
 }
 /**
